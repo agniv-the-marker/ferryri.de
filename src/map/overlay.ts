@@ -189,8 +189,6 @@ export class Overlay {
     const tx = w / 2 - cam.cur.x * s;
     const ty = h / 2 - cam.cur.y * s;
 
-    const toScreenPt = (p: WorldPt) => ({ x: p.x * s + tx, y: p.y * s + ty });
-
     // ---- route lines, world-transformed; legend can spotlight one ----
     ctx.save();
     ctx.setTransform(this.dpr * s, 0, 0, this.dpr * s, this.dpr * tx, this.dpr * ty);
