@@ -15,6 +15,7 @@ export function initLegend(
   const nav = document.getElementById('legend')!;
   const toggle = document.getElementById('legend-toggle')!;
   const list = document.getElementById('legend-list')!;
+  const attribution = document.getElementById('attribution')!;
   const rows = new Map<string, HTMLElement>();
   let active: string | null = null;
 
@@ -38,7 +39,18 @@ export function initLegend(
     rows.set(r.id, li);
     list.append(li);
   }
-  toggle.addEventListener('click', () => nav.classList.toggle('open'));
+  toggle.addEventListener('click', () => {
+    const open = nav.classList.toggle('open');
+    toggle.textContent = open ? 'hide routes' : 'routes';
+    toggle.setAttribute('aria-expanded', String(open));
+  });
+  toggle.setAttribute('aria-expanded', 'false');
+
+  // Keep About above the phone legend using its real rendered height. This
+  // remains correct with narrow screens, safe areas, and enlarged text.
+  new ResizeObserver(() => {
+    attribution.style.setProperty('--routes-height', `${nav.offsetHeight}px`);
+  }).observe(nav);
 
   return (routeId) => {
     active = routeId;

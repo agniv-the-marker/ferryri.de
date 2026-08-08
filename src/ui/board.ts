@@ -69,9 +69,8 @@ const ROWS = 7;
  * covers today is selected on open, so there's no redundant "today" tab.
  */
 const DAY_TABS: { label: string; match: (dow: number) => boolean }[] = [
-  { label: 'mon–fri', match: (d) => d <= 4 },
-  { label: 'saturday', match: (d) => d === 5 },
-  { label: 'sunday', match: (d) => d === 6 },
+  { label: 'weekday', match: (d) => d <= 4 },
+  { label: 'weekend', match: (d) => d >= 5 },
 ];
 
 /**
@@ -240,6 +239,9 @@ export function terminalBoard(
   let planner: { el: HTMLElement; refresh(c: BoardCtx): void } | null = null;
   allBtn.addEventListener('click', () => {
     onExpand?.();
+    // The phone-only selector should always open in its neutral state rather
+    // than carrying a route choice over from the previous planner visit.
+    if (matchMedia('(max-width: 719px)').matches) onFilterRoute?.(null);
     const p = plannerView(
       latestCtx,
       terminal,
@@ -279,7 +281,7 @@ export function terminalBoard(
         }),
       );
       note.textContent = deps.length
-        ? `first departs ${countdown(deps[0]!.dep, c.nowSec)} · simulated from the official schedule`
+        ? `first departs ${countdown(deps[0]!.dep, c.nowSec)}`
         : 'no more departures today';
     },
   };
