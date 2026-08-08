@@ -1,7 +1,7 @@
 {
   "name": "ferryri.de",
   "short_name": "ferryride",
-  "description": "Every San Francisco Bay Ferry on one live map.",
+  "description": "sf ferry rides on one map!!",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#fafafa",
