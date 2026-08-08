@@ -6,7 +6,8 @@
 const CACHE = 'ferryride-v1';
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['/'])));
+  const siteRoot = new URL('./', self.location.href).href;
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll([siteRoot])));
   self.skipWaiting();
 });
 
