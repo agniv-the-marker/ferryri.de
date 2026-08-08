@@ -1,0 +1,44 @@
+# ferryri.de — sf ferry rides
+
+Live map of the San Francisco Bay Ferry system. Vessels are **simulated from
+the official GTFS timetable + wall clock** — no realtime data. Paper-and-ink
+aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
+
+## Commands
+
+- `npm run dev` — Vite dev server
+- `npm run build` — typecheck + production build to `dist/`
+- `npm run data` — refresh `public/data/schedule.json` from the official GTFS
+  (https://gtfs.sanfranciscobayferry.com/gtfs.zip, ODC-BY). CI runs this weekly.
+- `npm run geo` — one-time rebuild of `public/data/coast.json` (MTC/TIGER
+  shoreline) and `topo.png` (terrarium hillshade). Outputs are committed.
+
+## Dev URL params
+
+- `?dev` — live tuning panel (also: About → "dev"). Values export via "copy".
+- `?t=2026-08-08T09:00` — shift the simulation clock (test weekends/nights)
+- `?v=<lng>,<lat>,<zoom>` — initial camera view
+- `?sel=<stopId>` — open a terminal board on load (Ferry Building = 7201)
+- `?wt=<sec>` — freeze water animation at a fixed time
+- `?ripple` / `?ripplekick` — automatic ripples for tuning / headless testing
+
+## Architecture
+
+- `scripts/build-data.ts` — GTFS → compact schedule.json. Ferry Building is
+  parent stop `7201`; gates are child stops (72011=E, 72012=G, 72013=F) so
+  departures know their gate natively.
+- `src/map/renderer.ts` — WebGL2: Bayer-dithered water w/ zoom-settled fractal
+  noise, hillshade land, coastline from the rasterized land-mask texture, and
+  a wave-equation ripple sim (land = reflective boundary).
+- `src/map/camera.ts` — damped camera; input only moves the *target*.
+- `src/sim/` — pure schedule math: active services, vessel interpolation
+  along GTFS shapes via `shape_dist_traveled`.
+- `src/ui/` — split-flap boards (flap.ts), bottom sheet / desktop right panel,
+  on-map departure chips, legend (click = spotlight route), dev panel.
+- `src/lib/tunables.ts` — every tweakable constant; the dev panel binds to it.
+  When the user hands back exported JSON, update the defaults here.
+
+## Verifying schedule accuracy
+
+Compare against https://sanfranciscobayferry.com/routes-schedules/ — e.g.
+Vallejo weekday departures from Gate E must match the published column.

@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no"
+    />
+    <title>sf ferry rides</title>
+    <meta
+      name="description"
+      content="Every San Francisco Bay Ferry on one live map — departures, gates, and travel times."
+    />
+    <meta name="theme-color" content="#fafafa" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body>
+    <div id="app">
+      <!-- WebGL dithered water/land -->
+      <canvas id="map-gl" aria-hidden="true"></canvas>
+      <!-- crisp 2D layer: routes, vessels, terminals, labels -->
+      <canvas id="map-overlay" aria-hidden="true"></canvas>
+      <!-- DOM layer: chips, sheet, chrome -->
+      <div id="chips" aria-hidden="true"></div>
+      <section id="sheet" role="dialog" aria-label="Details" data-state="closed">
+        <div id="sheet-grip" aria-hidden="true"><span></span></div>
+        <div id="sheet-body"></div>
+      </section>
+      <h1 id="station-name" hidden></h1>
+      <nav id="legend">
+        <button id="legend-toggle">routes</button>
+        <ul id="legend-list"></ul>
+      </nav>
+      <footer id="attribution">
+        <button id="about-link">about</button>
+      </footer>
+      <div id="about" hidden>
+        <div id="about-card">
+          <h1>
+            <img src="/favicon.svg" alt="" /> sf ferry rides
+            <img src="/favicon.svg" alt="" />
+          </h1>
+          <p>
+            The best form of public transit in the sf bay area. Inspired by
+            <a href="https://www.chloeyan.me/ferry" rel="external">chloeyan.me/ferry</a>.
+            Created by <a href="https://agniv.me" rel="external">agniv.me</a>.
+          </p>
+          <p>
+            The vessels you see are <em>simulated from the official
+            schedule</em>, not tracked by GPS (this does not reflect any
+            traffic delays). Tap a terminal for departures, gates, and
+            travel times.
+          </p>
+          <p class="about-credits">
+            schedule © <a href="https://sanfranciscobayferry.com" rel="external">San Francisco
+            Bay Ferry</a> (ODC-BY) · shoreline via MTC / TIGER · terrain via
+            Mapzen
+          </p>
+          <div class="about-actions">
+            <button id="about-close">close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

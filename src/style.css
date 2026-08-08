@@ -1,0 +1,543 @@
+/* ferryri.de — paper & ink, after sunday.bike */
+
+:root {
+  --bg: #fafafa;
+  --text: #111;
+  --text-secondary: #666;
+  --text-tertiary: #999;
+  --border: #ddd;
+
+  /* Map tones, read back by the GL renderer. These are overwritten at boot
+     from src/lib/tunables.ts (the source of truth) — kept in sync here so the
+     very first paint is right. */
+  --water-lo: #c7cff0;
+  --water-mid: #a1a4ec;
+  --water-hi: #7a78e8;
+  --land: #bdbdbd;
+  --ink: #000000;
+
+  --serif: 'EB Garamond Variable', Georgia, serif;
+  --mono: 'JetBrains Mono Variable', 'JetBrains Mono', monospace;
+
+  --sheet-peek: 3.25rem;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  overscroll-behavior: none;
+}
+
+body {
+  font-family: var(--serif);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  position: fixed;
+  inset: 0;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#app { position: absolute; inset: 0; }
+
+/* ---- map layers ---- */
+
+#map-gl, #map-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+#map-overlay { touch-action: none; cursor: grab; }
+#map-overlay.dragging { cursor: grabbing; }
+
+#chips {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* ---- on-map departure chips ---- */
+
+.chip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  border: 1px solid var(--border);
+  padding: 0.15rem 0.4rem;
+  will-change: transform, opacity;
+}
+.chip b {
+  font-weight: 400;
+  color: var(--text);
+}
+.chip .chip-route { color: var(--accent, var(--text-secondary)); }
+
+/* ---- footer / about ---- */
+
+#attribution {
+  position: absolute;
+  left: 1rem;
+  bottom: calc(0.5rem + var(--safe-bottom));
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  color: var(--text-tertiary);
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  z-index: 2;
+}
+#attribution a {
+  color: inherit;
+  pointer-events: auto;
+}
+#attribution button,
+#attribution .footer-btn {
+  font: inherit;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  padding: 0.35rem 0 0.05rem; /* taller tap target, quiet look */
+  cursor: pointer;
+  pointer-events: auto;
+  text-transform: uppercase;
+  text-decoration: none;
+}
+
+#about {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+#about[hidden] { display: none; }
+#about.open { opacity: 1; }
+
+#about-card {
+  /* the text scale can run to 1.5×, so cap against the viewport too */
+  max-width: min(24rem, 92vw);
+  max-height: 84dvh;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 1.1rem 1.2rem 1rem;
+  transform: translateY(10px) scale(0.985);
+  transition: transform 0.45s cubic-bezier(0.19, 1, 0.22, 1);
+}
+#about.open #about-card { transform: none; }
+#about-card h1 {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 500;
+  font-size: 1.15rem;
+  margin-bottom: 0.7rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+#about-card h1 img {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+#about-card p {
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+#about-card p {
+  font-family: var(--serif);
+  font-size: 0.95rem;
+  line-height: 1.55;
+  margin-bottom: 0.6rem;
+}
+#about-card .about-credits {
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  color: var(--text-tertiary);
+  letter-spacing: 0.02em;
+  margin: 0.9rem 0 0;
+}
+#about-card .about-credits a { color: inherit; }
+.about-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 1rem;
+}
+.about-actions button {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+}
+.about-actions button:hover {
+  border-color: var(--text-tertiary);
+  color: var(--text);
+}
+
+/* ---- bottom sheet ---- */
+
+#sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: min(78vh, 78dvh);
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  transform: translateY(100%);
+  will-change: transform;
+  display: flex;
+  flex-direction: column;
+  z-index: 3;
+}
+#sheet[data-state='closed'] { visibility: hidden; }
+
+#sheet-grip {
+  flex: none;
+  display: flex;
+  justify-content: center;
+  padding: 0.55rem 0;
+  touch-action: none;
+  cursor: grab;
+}
+#sheet-grip span {
+  width: 2.25rem;
+  height: 2px;
+  background: var(--border);
+}
+
+#sheet-body {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 1.25rem calc(1.25rem + var(--safe-bottom));
+}
+
+/* sheet content vocabulary */
+
+.sheet-title {
+  font-family: var(--serif);
+  font-size: 1.35rem;
+  font-weight: 500;
+  line-height: 1.25;
+}
+.sheet-sub {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+  margin-top: 0.15rem;
+}
+
+.dep-group { margin-top: 1.1rem; }
+.dep-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.02em;
+}
+.dep-head .route-name { color: var(--accent, var(--text)); text-transform: uppercase; }
+.dep-head .gate { color: var(--text-tertiary); }
+
+.dep-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+.dep-row .t { color: var(--text); }
+.dep-row .in { color: var(--text-secondary); }
+.dep-row .to { color: var(--text-tertiary); font-size: 0.65rem; }
+.dep-row.soon .in { color: var(--accent, var(--text)); }
+
+/* ---- split-flap board ---- */
+
+.flap-board {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 1.1rem;
+  /* the board is wider than a phone: let it scroll on its own axis rather
+     than forcing the whole sheet sideways */
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+.flap-board::-webkit-scrollbar { display: none; }
+.flap-row {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  border-left: 2px solid transparent;
+  padding-left: 7px;
+  min-height: 1.5rem;
+  width: max-content;
+}
+.flap-gap { width: 0.45rem; flex: none; }
+.flap-cell {
+  flex: none;
+  width: 0.92rem;
+  height: 1.35rem;
+  position: relative;
+  background: #f0f1ef;
+  border: 1px solid var(--border);
+  perspective: 240px;
+  overflow: hidden;
+}
+.flap-cell::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: rgba(0, 0, 0, 0.08);
+  pointer-events: none;
+}
+.flap-cell span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  line-height: 1.35rem;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--text);
+  backface-visibility: hidden;
+  will-change: transform;
+}
+
+.muted-note {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  color: var(--text-tertiary);
+  margin-top: 1rem;
+  letter-spacing: 0.02em;
+}
+
+/* ---- station name (upper left, desktop) ---- */
+
+#station-name {
+  position: absolute;
+  top: calc(0.9rem + var(--safe-top));
+  left: 1.1rem;
+  /* same voice as the map labels and chrome, just larger */
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text);
+  pointer-events: none;
+  display: none;
+  z-index: 2;
+}
+
+/* ---- route legend ---- */
+
+#legend {
+  position: absolute;
+  right: 1rem;
+  bottom: calc(0.5rem + var(--safe-bottom));
+  z-index: 2;
+  text-align: right;
+}
+#legend-toggle {
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  padding: 0.35rem 0 0.05rem;
+  cursor: pointer;
+}
+#legend-list {
+  display: none;
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0.5rem 0.6rem;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  border: 1px solid var(--border);
+}
+#legend.open #legend-list { display: block; }
+#legend-list li {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+  padding: 0.12rem 0;
+}
+#legend-list .swatch {
+  width: 0.9rem;
+  height: 3px;
+  flex: none;
+  order: 2;
+}
+
+/* ---- board actions / planner ---- */
+
+.board-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+.board-actions button,
+.day-tabs button {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-tertiary);
+  padding: 0.25rem 0.55rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.board-actions button:hover,
+.day-tabs button:hover {
+  color: var(--text-secondary);
+  border-color: var(--text-tertiary);
+}
+.day-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin: 0.9rem 0 0.4rem;
+}
+.day-tabs button.active {
+  border-color: var(--text-secondary);
+  color: var(--text);
+}
+.plan-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.7rem;
+  padding: 0.32rem 0 0.32rem 0.5rem;
+  border-left: 2px solid transparent;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+.plan-row .t { color: var(--text); min-width: 4.6rem; }
+.plan-row .to { color: var(--text-secondary); flex: 1; }
+.plan-row .via { color: var(--text-tertiary); font-size: 0.62rem; }
+.plan-row .g { color: var(--text-tertiary); font-size: 0.62rem; white-space: nowrap; }
+
+/* phone: drop the arrow and the word GATE — the columns speak for themselves */
+@media (max-width: 719px) {
+  .plan-row .arrow,
+  .plan-row .g-word { display: none; }
+  .plan-row { gap: 0.5rem; }
+  .plan-row .t { min-width: 4.1rem; }
+}
+
+.route-select {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  padding: 0.25rem 0.4rem;
+  max-width: 10rem;
+}
+
+/* ---- desktop: board fills the right side, station name upper left ---- */
+
+@media (min-width: 720px) {
+  #sheet {
+    left: auto;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    height: auto;
+    max-height: none;
+    width: min(26rem, 40vw);
+    border: none;
+    border-left: 1px solid var(--border);
+    transform: none;
+    transition: opacity 0.18s ease, transform 0.18s ease;
+  }
+  #sheet[data-state='closed'] {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+  #sheet-grip { display: none; }
+  #sheet-body { padding-top: 1.4rem; }
+  /* the station name lives on the map instead of inside the panel */
+  #sheet .sheet-title { display: none; }
+  #station-name:not([hidden]) { display: block; }
+  /* desktop: the key is always on; when the panel opens it rides its bottom */
+  #legend { bottom: calc(1rem + var(--safe-bottom)); }
+  #legend-toggle { display: none; }
+  #legend-list { display: block; }
+  #sheet:not([data-state='closed']) ~ #legend {
+    z-index: 4;
+    width: calc(min(26rem, 40vw) - 2rem);
+  }
+  #sheet:not([data-state='closed']) ~ #legend #legend-list {
+    width: 100%;
+    background: var(--bg);
+  }
+  /* board content scrolls clear of the legend */
+  #sheet-body { padding-bottom: 10.5rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #sheet { transition: none; }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "ferryri.de",
+  "short_name": "ferryride",
+  "description": "Every San Francisco Bay Ferry on one live map.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fafafa",
+  "theme_color": "#fafafa",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
