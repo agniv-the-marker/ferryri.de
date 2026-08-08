@@ -32,8 +32,6 @@ jobs:
       - run: npm ci
       - run: npm run data # fresh GTFS → schedule.json
       - run: npm run build
-        env:
-          BASE_PATH: /ferryri.de/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
