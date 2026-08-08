@@ -592,10 +592,8 @@ body {
   }
   #sheet:not([data-state='closed']) ~ #legend {
     z-index: 4;
-    width: calc(min(26rem, 40vw) - 2rem);
   }
   #sheet:not([data-state='closed']) ~ #legend #legend-list {
-    width: 100%;
     background: var(--bg);
   }
   /* board content scrolls clear of the legend */
