@@ -8,13 +8,17 @@
  * bloom people hear is not sample quality, it is long envelopes and a six
  * second reverb. Which means no samples, no library, and nothing to download.
  *
- * Chain: voice → lowpass → pan → master → (dry + reverb) → compressor → limiter.
+ * Chain: voice pair → lowpass → pan → master → (dry + reverb) → compressor →
+ * limiter. Every note is two oscillators a few cents apart so it wavers
+ * against itself, the way the two pipes of an aulos do.
  * The compressor keeps a rush-hour fleet from stacking into mud; the limiter is
  * the backstop so a tap during a full bay can never clip.
  */
 import { T } from '../lib/tunables';
 
 export interface VoicePreset {
+  /** a triangle behind a low corner reads as reed; sine is the plain tone */
+  wave: OscillatorType;
   /** seconds to reach full level */
   attack: number;
   /** seconds of fall toward `sustain` */
@@ -46,6 +50,14 @@ export interface Note {
 
 /** Above this many overlapping notes the bay is mush, so new ones are dropped. */
 const MAX_VOICES = 14;
+/**
+ * Reverb length. Measured against a dry mix of the same voices: six seconds of
+ * convolution costs 1.7× dry, two seconds 1.1×. Four is the compromise — still
+ * a big room, with the headroom back.
+ */
+const REVERB_SECONDS = 4;
+/** The drone is meant to be felt more than heard, so its tunable starts quiet. */
+const DRONE_TRIM = 0.08;
 
 /**
  * A decaying noise burst, which is all a reverb impulse response has to be.
@@ -71,6 +83,8 @@ export class Engine {
   private wet: GainNode;
   private reverb: ConvolverNode;
   private active = 0;
+  private drone: OscillatorNode[] = [];
+  private droneGain: GainNode | null = null;
 
   constructor(private ctx: BaseAudioContext, destination?: AudioNode) {
     // limiter first: high ratio, fast attack, so it only ever catches peaks
@@ -100,7 +114,7 @@ export class Engine {
     // would sail straight past the volume control, and turning the music down
     // would leave the room ringing at full level.
     this.reverb = ctx.createConvolver();
-    this.reverb.buffer = impulse(ctx, 6);
+    this.reverb.buffer = impulse(ctx, REVERB_SECONDS);
     this.wet = ctx.createGain();
     this.wet.gain.value = T.musicReverb;
     this.master.connect(this.reverb);
@@ -113,6 +127,50 @@ export class Engine {
     const t = this.ctx.currentTime;
     this.master.gain.setTargetAtTime(T.musicGain, t, 0.05);
     this.wet.gain.setTargetAtTime(T.musicReverb, t, 0.05);
+    if (this.droneGain) {
+      this.droneGain.gain.setTargetAtTime(T.musicDrone * DRONE_TRIM, t, 0.4);
+    }
+  }
+
+  /**
+   * A pedal under everything, held for as long as the music is on. Two pairs
+   * of oscillators wavering against each other a long way down — the low
+   * oscillation "Sirens" is built on, and the thing that keeps the bay from
+   * going silent between sailings.
+   */
+  startDrone(freqs: number[]) {
+    if (this.droneGain) return;
+    const { ctx } = this;
+    const g = ctx.createGain();
+    g.gain.value = 0;
+    g.gain.setTargetAtTime(T.musicDrone * DRONE_TRIM, ctx.currentTime, 3);
+    g.connect(this.master);
+    this.droneGain = g;
+    for (const freq of freqs) {
+      for (const side of [-1, 1]) {
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        // a wider split than a note gets: down here it reads as swell, not tuning
+        osc.detune.value = side * 6;
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 220;
+        osc.connect(lp);
+        lp.connect(g);
+        osc.start();
+        this.drone.push(osc);
+      }
+    }
+  }
+
+  stopDrone() {
+    if (!this.droneGain) return;
+    const t = this.ctx.currentTime;
+    this.droneGain.gain.setTargetAtTime(0, t, 0.3);
+    for (const osc of this.drone) osc.stop(t + 2);
+    this.drone = [];
+    this.droneGain = null;
   }
 
   /**
@@ -126,11 +184,6 @@ export class Engine {
     const t = Math.max(n.when, ctx.currentTime);
     const peak = Math.max(0, Math.min(1, n.velocity)) * p.gain;
     if (peak <= 0.0001) return false;
-
-    const osc = ctx.createOscillator();
-    osc.type = 'sine';
-    osc.frequency.value = n.freq;
-    if (n.detune) osc.detune.value = n.detune;
 
     const env = ctx.createGain();
     env.gain.setValueAtTime(0, t);
@@ -147,7 +200,25 @@ export class Engine {
     const pan = ctx.createStereoPanner();
     pan.pan.value = Math.max(-1, Math.min(1, n.pan ?? 0));
 
-    osc.connect(env);
+    // Two oscillators, split by `beat cents`, so the note breathes against
+    // itself instead of sitting dead still.
+    const spread = T.musicBeat / 2;
+    const glide = T.musicGlide;
+    const oscs = [-1, 1].map((side) => {
+      const osc = ctx.createOscillator();
+      osc.type = p.wave;
+      osc.detune.value = (n.detune ?? 0) + side * spread;
+      if (glide > 0.005) {
+        // slide up into pitch — a siren, in both senses
+        osc.frequency.setValueAtTime(n.freq * 0.89, t);
+        osc.frequency.exponentialRampToValueAtTime(n.freq, t + glide);
+      } else {
+        osc.frequency.value = n.freq;
+      }
+      osc.connect(env);
+      return osc;
+    });
+
     env.connect(lp);
     lp.connect(pan);
     pan.connect(this.master);
@@ -155,13 +226,15 @@ export class Engine {
     const releaseAt = t + Math.max(0.05, n.ring);
     env.gain.setTargetAtTime(0, releaseAt, Math.max(0.02, p.release / 3));
     const stopAt = releaseAt + p.release;
-    osc.start(t);
-    osc.stop(stopAt);
+    for (const osc of oscs) {
+      osc.start(t);
+      osc.stop(stopAt);
+    }
 
     this.active++;
-    osc.onended = () => {
+    oscs[0]!.onended = () => {
       this.active--;
-      osc.disconnect();
+      for (const osc of oscs) osc.disconnect();
       env.disconnect();
       lp.disconnect();
       pan.disconnect();

@@ -122,6 +122,8 @@ export interface BobState {
   h: number;
   gx: number;
   gy: number;
+  /** frame counter, for sweeping out vessels that have finished their run */
+  seen: number;
 }
 
 /** smoothstep fade for zoom bands */
@@ -177,6 +179,7 @@ export class Overlay {
   /** Per-vessel water response, eased frame to frame — see the bob block. */
   private bobState = new Map<string, BobState>();
   private lastBobT = 0;
+  private bobFrame = 0;
   /** Currently highlighted (selected) stop/vessel for subtle emphasis. */
   selected: Pick | null = null;
 
@@ -395,7 +398,10 @@ export class Overlay {
     const bobDt = Math.min(0.1, nowT - this.lastBobT || 0.016);
     this.lastBobT = nowT;
     const ease = T.bobEase > 0.005 ? 1 - Math.exp(-bobDt / T.bobEase) : 1;
-    const bobNext = new Map<string, BobState>();
+    // One map, mutated in place and swept by frame stamp. Rebuilding it — and
+    // the state objects in it — every frame meant thousands of short-lived
+    // objects a second, and the GC pauses read as stutter.
+    const frameId = ++this.bobFrame;
     for (const v of vessels) {
       const route = this.routeById.get(v.routeId);
       if (!route || !routeVisible(route)) continue;
@@ -421,20 +427,19 @@ export class Overlay {
       let swayY = 0;
       if (water) {
         const ride = v.docked ? T.bobDock : 1;
-        const prev = this.bobState.get(v.trip.id);
-        const raw: BobState = {
-          h: water(p.x, p.y),
-          gx: water(p.x + reach, p.y) - water(p.x - reach, p.y),
-          gy: water(p.x, p.y + reach) - water(p.x, p.y - reach),
-        };
-        const st: BobState = prev
-          ? {
-              h: prev.h + (raw.h - prev.h) * ease,
-              gx: prev.gx + (raw.gx - prev.gx) * ease,
-              gy: prev.gy + (raw.gy - prev.gy) * ease,
-            }
-          : raw;
-        bobNext.set(v.trip.id, st);
+        const rawH = water(p.x, p.y);
+        const rawGx = water(p.x + reach, p.y) - water(p.x - reach, p.y);
+        const rawGy = water(p.x, p.y + reach) - water(p.x, p.y - reach);
+        let st = this.bobState.get(v.trip.id);
+        if (!st) {
+          st = { h: rawH, gx: rawGx, gy: rawGy, seen: frameId };
+          this.bobState.set(v.trip.id, st);
+        } else {
+          st.h += (rawH - st.h) * ease;
+          st.gx += (rawGx - st.gx) * ease;
+          st.gy += (rawGy - st.gy) * ease;
+          st.seen = frameId;
+        }
         const { h: hgt, gx, gy } = st;
         lift = -hgt * T.bobLift * ride;
         grow = Math.max(0.5, 1 + hgt * T.bobScale * ride);
@@ -472,7 +477,11 @@ export class Overlay {
       ctx.restore();
     }
     // vessels that ended their run drop out of the map with them
-    this.bobState = bobNext;
+    if (this.bobState.size > vessels.length) {
+      for (const [id, st] of this.bobState) {
+        if (st.seen !== frameId) this.bobState.delete(id);
+      }
+    }
   }
 
   private label(

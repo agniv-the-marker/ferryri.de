@@ -457,6 +457,13 @@ export class Renderer {
     this.lastMap = [1, 0, 0];
   }
 
+  /**
+   * True while something other than the bob still needs the field read back —
+   * the music sets it while a tap is still travelling. Nothing needs a flat
+   * field, and the readback is the expensive part.
+   */
+  rippleWanted = false;
+
   /** Drop a tap ripple at css-pixel screen coordinates. */
   addRipple(x: number, y: number) {
     this.splats.push({ x, y });
@@ -854,7 +861,7 @@ export class Renderer {
     if (animate) this.stepRipples(cam);
     // a still field can't rock anything, so don't pay for the readback — but
     // both the bob and the music's ripple-triggered hulls read it
-    const wantsField = T.bobEnable || (T.musicOn && T.musicRippleSeq > 0);
+    const wantsField = T.bobEnable || (T.musicOn && this.rippleWanted);
     if (animate && wantsField) this.pumpProbe();
 
     // Settle the water-noise level only while the camera isn't zooming, so

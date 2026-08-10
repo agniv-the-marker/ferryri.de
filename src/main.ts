@@ -19,7 +19,7 @@ import { stopFamily, terminalBoard, vesselCard, type BoardCtx, type BoardHandle 
 import type { ScheduleData, Terminal } from './lib/types';
 import { SPECS, T, applyDomTunables, onTune, setTunable, type TunableKey } from './lib/tunables';
 import { initVisibility, onVisibilityChange, routeVisible } from './lib/visibility';
-import { Music, musicKick } from './audio/music';
+import { Music, musicKick, type FrameState } from './audio/music';
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -161,6 +161,15 @@ async function boot() {
   const bobParam = new URLSearchParams(location.search).get('bob');
   if (bobParam !== null) setTunable('bobEnable', bobParam !== '0');
 
+  const musicSnapshot: FrameState = {
+    vessels: [],
+    cam: camera,
+    ripple: null,
+    water: overlay.waterMotion,
+    nowSec: 0,
+    spotlight: null,
+  };
+
   // ---- simulation state (recomputed when the service day changes) ----
   const bootWall = simNow();
   const bootLt = localTime(bootWall);
@@ -269,14 +278,17 @@ async function boot() {
       lastVesselList,
       reducedMotion.matches ? null : renderer.waterSampler(camera, waterTime),
     );
-    music.frame({
-      vessels: lastVesselList,
-      cam: camera,
-      ripple: renderer.rippleSampler(camera),
-      water: overlay.waterMotion,
-      nowSec: currentSec,
-      spotlight: overlay.highlightRoute,
-    });
+    // One snapshot object, refilled each frame rather than rebuilt: at 60 fps
+    // the garbage from allocating here (and a sampler closure with it) is what
+    // the map's stutter was made of. The sampler is only built while something
+    // is still listening for a wave, which is almost never.
+    musicSnapshot.vessels = lastVesselList;
+    renderer.rippleWanted = music.listening;
+    musicSnapshot.ripple = renderer.rippleWanted ? renderer.rippleSampler(camera) : null;
+    musicSnapshot.water = overlay.waterMotion;
+    musicSnapshot.nowSec = currentSec;
+    musicSnapshot.spotlight = overlay.highlightRoute;
+    music.frame(musicSnapshot);
     chips.update(camera);
 
     // minute tick: refresh open board / vessel card
@@ -375,7 +387,8 @@ async function boot() {
     void musicKick(schedule).then((r) => {
       document.title =
         `peak=${r.peak.toFixed(3)} rms=${r.rms.toFixed(4)} ` +
-        `bed=${r.bed} bell=${r.bell} hull=${r.hull}`;
+        `bed=${r.bed} bell=${r.bell} hull=${r.hull} ` +
+        `stations=${r.stations} routes=${r.lines}`;
     });
   }
 
@@ -389,20 +402,20 @@ async function boot() {
       await music.setEnabled(true);
       const { w, h } = camera.viewport;
       renderer.addRipple(w / 2, h / 2);
+      music.tapped();
       for (let i = 0; i < 240; i++) {
         renderer.draw(camera, waterTime, true);
         renderer.probeNow();
-        music.frame({
-          vessels: lastVesselList,
-          cam: camera,
-          ripple: renderer.rippleSampler(camera),
-          water: overlay.waterMotion,
-          nowSec: currentSec,
-          spotlight: overlay.highlightRoute,
-        });
+        musicSnapshot.vessels = lastVesselList;
+        musicSnapshot.ripple = renderer.rippleSampler(camera);
+        musicSnapshot.water = overlay.waterMotion;
+        musicSnapshot.nowSec = currentSec;
+        musicSnapshot.spotlight = overlay.highlightRoute;
+        music.frame(musicSnapshot);
       }
       document.title =
-        `hulls=${music.debugWaveNotes} peak=${music.debugWavePeak.toFixed(3)} ` +
+        `hulls=${music.debugWaveNotes} stations=${music.debugStationNotes} ` +
+        `routes=${music.debugLineNotes} peak=${music.debugWavePeak.toFixed(3)} ` +
         `boats=${lastVesselList.length}`;
     })();
   }
@@ -411,7 +424,10 @@ async function boot() {
   if (new URLSearchParams(location.search).has('ripple')) {
     setInterval(() => {
       const { w, h } = camera.viewport;
-      if (!renderer.isLand(w / 2, h / 2)) renderer.addRipple(w / 2, h / 2);
+      if (!renderer.isLand(w / 2, h / 2)) {
+        renderer.addRipple(w / 2, h / 2);
+        music.tapped(); // so ?ripple exercises the music path too
+      }
     }, 1800);
   }
 
