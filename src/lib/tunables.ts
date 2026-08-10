@@ -108,14 +108,18 @@ export const SPECS = {
   // `?bob=0` turns it off. Hull length is the load-bearing one: it sets both
   // which waves a boat answers and the baseline its heel is measured over.
   bobEnable: bool('bob', 'boats bob', true),
-  bobHull: num('bob', 'hull length m', 50, 10, 150, 5),
-  bobEase: num('bob', 'hull lag s', 0.3, 0, 1.5, 0.05),
-  bobSwell: num('bob', 'swell share', 0.9, 0, 2, 0.05),
+  bobHull: num('bob', 'hull length m', 45, 10, 150, 5),
+  // Zero lag was the call from tuning: the hull answers the water on the
+  // frame, and the water is smooth enough now to carry it.
+  bobEase: num('bob', 'hull lag s', 0, 0, 1.5, 0.05),
+  // Landed at 1.95 against a ceiling of 2, so the ceiling was the wrong shape
+  // of the argument, not the answer — raised to leave headroom above it.
+  bobSwell: num('bob', 'swell share', 1.95, 0, 3, 0.05),
   bobLift: num('bob', 'lift px', 6, 0, 16, 0.25),
   bobScale: num('bob', 'size swell', 0.15, 0, 0.6, 0.01),
-  bobRock: num('bob', 'rock °', 7, 0, 30, 0.5),
-  bobSway: num('bob', 'sway px', 1.5, 0, 8, 0.1),
-  bobDock: num('bob', 'docked ×', 0.4, 0, 1, 0.05),
+  bobRock: num('bob', 'rock °', 11, 0, 30, 0.5),
+  bobSway: num('bob', 'sway px', 0.5, 0, 8, 0.1),
+  bobDock: num('bob', 'docked ×', 0.15, 0, 1, 0.05),
 
   // ---- camera ----
   camStiffness: num('camera', 'damping stiffness', 12.5, 2, 20, 0.5),
