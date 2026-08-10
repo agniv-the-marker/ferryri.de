@@ -415,8 +415,8 @@ async function boot() {
       }
       document.title =
         `hulls=${music.debugWaveNotes} stations=${music.debugStationNotes} ` +
-        `routes=${music.debugLineNotes} peak=${music.debugWavePeak.toFixed(3)} ` +
-        `boats=${lastVesselList.length}`;
+        `routes=${music.debugLineNotes} dropped=${music.debugDropped} ` +
+        `peak=${music.debugWavePeak.toFixed(3)} boats=${lastVesselList.length}`;
     })();
   }
 

@@ -46,10 +46,21 @@ export interface Note {
   pan?: number;
   /** cents, for hulls riding a crest */
   detune?: number;
+  /**
+   * Who yields to whom when the pool is full. Anything the listener just
+   * caused outranks the ambient bed, so a tap is never the thing that gets
+   * dropped. See `play`.
+   */
+  priority?: number;
 }
 
-/** Above this many overlapping notes the bay is mush, so new ones are dropped. */
-const MAX_VOICES = 14;
+/**
+ * Above this many overlapping notes the bay is mush. Sines are cheap — a mix
+ * this size measured 20× realtime with the reverb — so the number is about
+ * taste, not CPU. It has to be generous, because a note here holds its voice
+ * for its ring plus its release, which is fifteen seconds or more.
+ */
+const MAX_VOICES = 20;
 /**
  * Reverb length. Measured against a dry mix of the same voices: six seconds of
  * convolution costs 1.7× dry, two seconds 1.1×. Four is the compromise — still
@@ -82,7 +93,10 @@ export class Engine {
   private master: GainNode;
   private wet: GainNode;
   private reverb: ConvolverNode;
-  private active = 0;
+  /** Sounding notes, oldest first, each with the rank that can displace it. */
+  private live: { env: GainNode; oscs: OscillatorNode[]; priority: number }[] = [];
+  /** Dev aid: notes that never sounded because the pool was full. */
+  debugDropped = 0;
   private drone: OscillatorNode[] = [];
   private droneGain: GainNode | null = null;
 
@@ -174,12 +188,19 @@ export class Engine {
   }
 
   /**
-   * Schedule one note. Returns false when the voice cap turned it away, which
-   * the callers treat as "the bay was already singing" rather than an error.
+   * Schedule one note. Returns false when the pool was full of notes that
+   * outrank this one — which is how the ambient bed yields to anything the
+   * listener actually did. A note holds its voice for its whole ring and
+   * release, so without this a tap arrives to find every voice taken by boats
+   * that sounded ten seconds ago, and nothing answers the water.
    */
   play(n: Note): boolean {
-    if (this.active >= MAX_VOICES) return false;
     const { ctx } = this;
+    const priority = n.priority ?? 0;
+    if (this.live.length >= MAX_VOICES && !this.steal(priority)) {
+      this.debugDropped++;
+      return false;
+    }
     const p = n.preset;
     const t = Math.max(n.when, ctx.currentTime);
     const peak = Math.max(0, Math.min(1, n.velocity)) * p.gain;
@@ -231,14 +252,33 @@ export class Engine {
       osc.stop(stopAt);
     }
 
-    this.active++;
+    const entry = { env, oscs, priority };
+    this.live.push(entry);
     oscs[0]!.onended = () => {
-      this.active--;
+      const i = this.live.indexOf(entry);
+      if (i >= 0) this.live.splice(i, 1);
       for (const osc of oscs) osc.disconnect();
       env.disconnect();
       lp.disconnect();
       pan.disconnect();
     };
+    return true;
+  }
+
+  /**
+   * Make room by retiring the oldest note this one outranks, fading it rather
+   * than cutting it so the theft is inaudible. Returns false when everything
+   * sounding matters more than what is asking.
+   */
+  private steal(priority: number): boolean {
+    const i = this.live.findIndex((v) => v.priority <= priority);
+    if (i < 0) return false;
+    const victim = this.live[i]!;
+    const t = this.ctx.currentTime;
+    victim.env.gain.cancelScheduledValues(t);
+    victim.env.gain.setTargetAtTime(0, t, 0.08);
+    for (const osc of victim.oscs) osc.stop(t + 0.4);
+    this.live.splice(i, 1);
     return true;
   }
 }
