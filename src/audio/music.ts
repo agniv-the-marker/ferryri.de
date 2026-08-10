@@ -20,15 +20,19 @@ import type { VesselState } from '../sim/vessels';
 import { T } from '../lib/tunables';
 import { routeVisible } from '../lib/visibility';
 import { Engine } from './engine';
-import { CHIME } from './voices';
+import { LINE, STATION, TAP } from './voices';
 import {
+  DRONE_FREQS,
   assignVoices,
   degreeToFreq,
   hash,
   idleFigure,
+  listeningPosts,
   periodFor,
   phraseFrom,
+  stationPosts,
   type PhraseNote,
+  type Post,
   type RouteVoice,
 } from './score';
 
@@ -37,6 +41,15 @@ const LOOKAHEAD = 0.12;
 const TICK_MS = 25;
 /** A hull can only answer a passing wave this often. */
 const WAVE_REFRACTORY = 0.35;
+/**
+ * How long after a tap anything is still listening. The wave field is flat far
+ * more than 99% of the time, and sampling it under every vessel, station and
+ * route post on every frame for nothing was the map's stutter — this window is
+ * what makes the whole pass free when the water is still.
+ */
+const LISTEN_WINDOW = 8;
+/** How far off a dock to listen, in css px, to clear the shoreline. */
+const STATION_REACH = 16;
 
 export interface FrameState {
   vessels: VesselState[];
@@ -57,6 +70,13 @@ export class Music {
   private timer: number | null = null;
   private voices: Map<string, RouteVoice>;
   private routeById: Map<string, Route>;
+  private posts: Post[];
+  private stations: { id: string; world: { x: number; y: number }; degree: number }[];
+  private stationVoice: RouteVoice = { preset: STATION, octave: 1 };
+  private lineVoice: RouteVoice = { preset: LINE, octave: 1 };
+  private tapVoice: RouteVoice = { preset: TAP, octave: 1 };
+  /** Context time after which the water is assumed flat again. */
+  private listenUntil = 0;
   private snapshot: FrameState | null = null;
   /** next fleet-bed note per trip, in context time */
   private nextAt = new Map<string, number>();
@@ -69,11 +89,20 @@ export class Music {
    * Lets a headless test assert the coupling without a speaker.
    */
   debugWaveNotes = 0;
+  debugStationNotes = 0;
+  debugLineNotes = 0;
   debugWavePeak = 0;
+  /** Notes the pool refused — should stay near zero for anything you did. */
+  get debugDropped(): number {
+    return this.engine?.debugDropped ?? 0;
+  }
 
   constructor(data: ScheduleData) {
     this.voices = assignVoices(data.routes);
     this.routeById = new Map(data.routes.map((r) => [r.id, r]));
+    // projected once at boot, not per frame
+    this.posts = listeningPosts(data);
+    this.stations = stationPosts(data.terminals);
   }
 
   /** Was music left on last visit? Restored, but never resumed without a gesture. */
@@ -102,6 +131,7 @@ export class Music {
       /* private mode: the session still works, it just won't be remembered */
     }
     if (!on) {
+      this.engine?.stopDrone();
       await this.ctx?.suspend().catch(() => {});
       if (this.timer !== null) {
         clearInterval(this.timer);
@@ -126,12 +156,21 @@ export class Music {
     if (this.timer === null) {
       this.timer = setInterval(() => this.tick(), TICK_MS) as unknown as number;
     }
+    this.engine?.startDrone(DRONE_FREQS);
   }
 
   /** Follows the page: no reason to keep a mix running for a hidden tab. */
   async setAwake(awake: boolean) {
     if (!this.ctx || !this.on) return;
     await (awake ? this.ctx.resume() : this.ctx.suspend()).catch(() => {});
+  }
+
+  /**
+   * Is anything still listening? False almost always, which lets the frame loop
+   * skip even building a sampler for a field that is flat.
+   */
+  get listening(): boolean {
+    return this.on && !!this.ctx && this.ctx.currentTime <= this.listenUntil;
   }
 
   /** Called every rAF; cheap by design — it only leaves state behind. */
@@ -143,46 +182,125 @@ export class Music {
   // ---- ripple → hulls -----------------------------------------------------
 
   /**
-   * A hull sounds when the water under it rises through the gate. The ripple
-   * field is read on its own here rather than through the combined water
-   * sampler: the swell would cross any threshold constantly, and only the tap
-   * ripple should be playing anything.
+   * Everything the wavefront touches answers: hulls in their route's voice,
+   * terminals with their own fixed note, route lines with a breath. Near things
+   * first, far ones later, so the figure's rhythm is the wave spreading out and
+   * reflecting off the coastline.
+   *
+   * The ripple field is read on its own here rather than through the combined
+   * water sampler — the swell would trip any threshold constantly, and only a
+   * wave you started should be playing anything.
    */
   private listenForWaves(state: FrameState) {
-    const gain = T.musicRippleSeq;
-    if (!this.ctx || !this.engine || gain <= 0 || !state.ripple) return;
+    if (!this.ctx || !this.engine || !state.ripple) return;
     const now = this.ctx.currentTime;
+    if (now > this.listenUntil) return; // the water went flat; nothing to do
+
     const { cam } = state;
     const s = cam.scale;
-    const tx = cam.viewport.w / 2 - cam.cur.x * s;
-    const ty = cam.viewport.h / 2 - cam.cur.y * s;
+    const { w, h } = cam.viewport;
+    const tx = w / 2 - cam.cur.x * s;
+    const ty = h / 2 - cam.cur.y * s;
     const gate = T.musicRippleGate;
+    const ripple = state.ripple;
+    const panOfX = (x: number) => ((x / w) * 2 - 1) * T.musicPan;
 
-    for (const v of state.vessels) {
-      const voice = this.voices.get(v.routeId);
-      if (!voice || !this.visible(v.routeId)) continue;
-      const x = v.pos.x * s + tx;
-      const y = v.pos.y * s + ty;
-      if (x < 0 || y < 0 || x > cam.viewport.w || y > cam.viewport.h) continue;
-      const h = Math.abs(state.ripple(x, y));
-      if (h > this.debugWavePeak) this.debugWavePeak = h;
-      const prev = this.waveSeen.get(v.trip.id);
-      this.waveSeen.set(v.trip.id, { h, at: prev?.at ?? -1 });
-      if (!prev || prev.h >= gate || h < gate) continue;
-      if (now - prev.at < WAVE_REFRACTORY) continue;
-      this.waveSeen.set(v.trip.id, { h, at: now });
-      this.debugWaveNotes++;
-      this.engine.play({
-        preset: voice.preset,
-        freq: degreeToFreq(voice, this.degreeOf(v, state.nowSec)),
-        when: now + 0.02,
-        ring: T.musicRing * 0.6,
-        velocity: Math.min(0.9, 0.3 + h * 2) * gain * this.duck(v.routeId, state.spotlight),
-        pan: this.panOf(v, state),
-      });
+    // ---- hulls ----
+    const hulls = T.musicRippleSeq;
+    if (hulls > 0) {
+      for (const v of state.vessels) {
+        const voice = this.voices.get(v.routeId);
+        if (!voice || !this.visible(v.routeId)) continue;
+        const x = v.pos.x * s + tx;
+        const y = v.pos.y * s + ty;
+        if (x < 0 || y < 0 || x > w || y > h) continue;
+        const height = Math.abs(ripple(x, y));
+        if (height > this.debugWavePeak) this.debugWavePeak = height;
+        if (!this.arrived(v.trip.id, height, now, gate)) continue;
+        if (this.engine.play({
+          preset: voice.preset,
+          freq: degreeToFreq(voice, this.degreeOf(v, state.nowSec)),
+          when: now + 0.02,
+          ring: T.musicRing * 0.6,
+          velocity: Math.min(0.9, 0.3 + height * 2) * hulls * this.duck(v.routeId, state.spotlight),
+          pan: this.panOf(v, state),
+          priority: 3,
+        })) this.debugWaveNotes++;
+      }
     }
-    // trips that ended shouldn't keep state around
-    if (this.waveSeen.size > state.vessels.length * 3) this.waveSeen.clear();
+
+    // ---- terminals ----
+    const stops = T.musicRippleStop;
+    if (stops > 0) {
+      for (const st of this.stations) {
+        const x = st.world.x * s + tx;
+        const y = st.world.y * s + ty;
+        if (x < 0 || y < 0 || x > w || y > h) continue;
+        // A terminal stands on the shore, and the sim pins land flat so waves
+        // reflect off the coast — sampled at the dock itself a station would
+        // never hear anything. Take the loudest of a small ring around it, so
+        // whichever side faces open water is the side that listens.
+        let height = 0;
+        for (let k = 0; k < 4; k++) {
+          const dx = k === 0 ? -STATION_REACH : k === 1 ? STATION_REACH : 0;
+          const dy = k === 2 ? -STATION_REACH : k === 3 ? STATION_REACH : 0;
+          const at = Math.abs(ripple(x + dx, y + dy));
+          if (at > height) height = at;
+        }
+        if (!this.arrived(`s${st.id}`, height, now, gate)) continue;
+        if (this.engine.play({
+          preset: STATION,
+          freq: degreeToFreq(this.stationVoice, st.degree),
+          when: now + 0.02,
+          ring: T.musicRing,
+          velocity: Math.min(0.8, 0.28 + height * 1.6) * stops,
+          pan: panOfX(x),
+          priority: 2,
+        })) this.debugStationNotes++;
+      }
+    }
+
+    // ---- route lines ----
+    const lines = T.musicRippleLine;
+    if (lines > 0) {
+      for (let i = 0; i < this.posts.length; i++) {
+        const post = this.posts[i]!;
+        if (!this.visible(post.routeId)) continue;
+        const x = post.world.x * s + tx;
+        const y = post.world.y * s + ty;
+        if (x < 0 || y < 0 || x > w || y > h) continue;
+        const height = Math.abs(ripple(x, y));
+        if (!this.arrived(`l${i}`, height, now, gate)) continue;
+        if (this.engine.play({
+          preset: LINE,
+          freq: degreeToFreq(this.lineVoice, post.degree),
+          when: now + 0.02,
+          ring: T.musicRing * 0.4,
+          velocity: 0.3 * lines * this.duck(post.routeId, state.spotlight),
+          pan: panOfX(x),
+          priority: 1,
+        })) this.debugLineNotes++;
+      }
+    }
+  }
+
+  /**
+   * Has the wave just *arrived* here — risen through the gate since last look,
+   * and not too soon after the last time this thing sounded? The record is
+   * mutated rather than replaced: at a few hundred listening points a frame,
+   * allocating here is what turns into stutter.
+   */
+  private arrived(key: string, height: number, now: number, gate: number): boolean {
+    const rec = this.waveSeen.get(key);
+    if (!rec) {
+      this.waveSeen.set(key, { h: height, at: -1 });
+      return false;
+    }
+    const rising = rec.h < gate && height >= gate;
+    rec.h = height;
+    if (!rising || now - rec.at < WAVE_REFRACTORY) return false;
+    rec.at = now;
+    return true;
   }
 
   // ---- the fleet bed ------------------------------------------------------
@@ -227,18 +345,22 @@ export class Music {
 
   // ---- taps ---------------------------------------------------------------
 
-  /** The tap itself: a bell over the water, whatever else it sets off. */
+  /**
+   * You pressed the water, so the water answers — plainly, on its own note —
+   * and everything the wave then reaches follows behind it.
+   */
   tapped() {
     const { ctx, engine } = this;
-    if (!ctx || !engine || !this.on || T.musicRippleBell <= 0) return;
-    const v = this.voices.values().next().value as RouteVoice | undefined;
-    const octave = (v?.octave ?? 3) + 1;
+    if (!ctx || !engine || !this.on) return;
+    this.listenUntil = ctx.currentTime + LISTEN_WINDOW;
+    if (T.musicRippleBell <= 0) return;
     engine.play({
-      preset: CHIME,
-      freq: degreeToFreq({ preset: CHIME, octave }, 2 + Math.floor(Math.random() * 3)),
+      preset: TAP,
+      freq: degreeToFreq(this.tapVoice, 0),
       when: ctx.currentTime + 0.01,
-      ring: 0.6,
-      velocity: 0.55 * T.musicRippleBell,
+      ring: 2.2,
+      velocity: 0.6 * T.musicRippleBell,
+      priority: 3,
     });
   }
 
@@ -276,6 +398,7 @@ export class Music {
         when: t0 + n.at,
         ring: T.musicRing,
         velocity: n.velocity * T.musicPhrase,
+        priority: 3,
       });
     }
   }
@@ -324,14 +447,17 @@ export async function musicKick(data: ScheduleData, seconds = 6) {
   const rate = 44100;
   const ctx = new OfflineAudioContext(2, Math.ceil(rate * seconds), rate);
   const engine = new Engine(ctx);
+  // Kept deliberately under the engine's voice cap: in an offline render
+  // nothing ever ends, so `active` only climbs and a fuller pattern would have
+  // later layers refused for reasons that say nothing about the live mix.
   const voices = [...assignVoices(data.routes).values()];
-  if (!voices.length) return { peak: 0, rms: 0, bed: 0, bell: 0, hull: 0 };
+  if (!voices.length) return { peak: 0, rms: 0, bed: 0, bell: 0, hull: 0, stations: 0, lines: 0 };
 
   let bed = 0;
   let bell = 0;
   let hull = 0;
   if (T.musicBed > 0) {
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 4; i++) {
       const v = voices[i % voices.length]!;
       if (engine.play({
         preset: v.preset,
@@ -344,16 +470,16 @@ export async function musicKick(data: ScheduleData, seconds = 6) {
   }
   if (T.musicRippleBell > 0) {
     if (engine.play({
-      preset: CHIME,
-      freq: degreeToFreq({ preset: CHIME, octave: 4 }, 2),
+      preset: TAP,
+      freq: degreeToFreq({ preset: TAP, octave: 1 }, 0),
       when: 0.05,
-      ring: 0.6,
-      velocity: 0.55 * T.musicRippleBell,
+      ring: 2.2,
+      velocity: 0.6 * T.musicRippleBell,
     })) bell++;
   }
   if (T.musicRippleSeq > 0) {
-    // the wavefront reaching four hulls in turn
-    for (let i = 0; i < 4; i++) {
+    // the wavefront reaching three hulls in turn
+    for (let i = 0; i < 3; i++) {
       const v = voices[i % voices.length]!;
       if (engine.play({
         preset: v.preset,
@@ -362,6 +488,31 @@ export async function musicKick(data: ScheduleData, seconds = 6) {
         ring: T.musicRing * 0.6,
         velocity: 0.5 * T.musicRippleSeq,
       })) hull++;
+    }
+  }
+
+  let stations = 0;
+  if (T.musicRippleStop > 0) {
+    for (let i = 0; i < 2; i++) {
+      if (engine.play({
+        preset: STATION,
+        freq: degreeToFreq({ preset: STATION, octave: 1 }, i * 2),
+        when: 0.5 + i * 0.5,
+        ring: T.musicRing,
+        velocity: 0.4 * T.musicRippleStop,
+      })) stations++;
+    }
+  }
+  let lines = 0;
+  if (T.musicRippleLine > 0) {
+    for (let i = 0; i < 2; i++) {
+      if (engine.play({
+        preset: LINE,
+        freq: degreeToFreq({ preset: LINE, octave: 1 }, i),
+        when: 0.7 + i * 0.3,
+        ring: T.musicRing * 0.4,
+        velocity: 0.3 * T.musicRippleLine,
+      })) lines++;
     }
   }
 
@@ -378,5 +529,5 @@ export async function musicKick(data: ScheduleData, seconds = 6) {
       n++;
     }
   }
-  return { peak, rms: Math.sqrt(sum / Math.max(1, n)), bed, bell, hull };
+  return { peak, rms: Math.sqrt(sum / Math.max(1, n)), bed, bell, hull, stations, lines };
 }

@@ -66,6 +66,31 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
 - `src/lib/tunables.ts` — every tweakable constant; the dev panel binds to it.
   When the user hands back exported JSON, update the defaults here.
 
+## The music knobs (dev panel, `music` group)
+
+| tunable | what it does |
+| --- | --- |
+| `music` | the switch — same one as the footer button |
+| `master` | overall volume |
+| `drone` | the low pedal held while music is on; 0 silences it |
+| `beat cents` | how far a note's paired oscillators are detuned — the aulos wobble |
+| `glide s` | how long a note slides into pitch. 0 = struck, high = siren |
+| `note ring s` | how long a note sounds before it fades |
+| `reverb wet` | how much of the room you hear |
+| `fleet density` | how often each vessel underway sounds |
+| `fleet level` / `phrase level` | loudness of the fleet bed / a terminal's departures |
+| `ripple bell` | the note the tap itself makes |
+| `ripple → hulls` / `→ stations` / `→ routes` | what answers the passing wavefront |
+| `wave arrival` | how high the water must rise to count as "the wave got here". Peak under a hull is ~0.13, so 0.02 fires most things and 0.20 fires nothing |
+| `heel → pan` | how far a rolling boat pushes its note toward one ear |
+
+Two things worth knowing before changing this code. The wave field is flat far
+more than 99% of the time, so everything that reads it is gated behind a
+listening window opened by `music.tapped()` — the per-frame sampling (and the
+GPU readback feeding it) was the map's stutter. And terminals stand on the
+shore, where the sim pins the field flat so waves reflect; a station listens on
+a small ring offshore or it never hears anything.
+
 ## Verifying schedule accuracy
 
 Compare against https://sanfranciscobayferry.com/routes-schedules/ — e.g.
