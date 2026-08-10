@@ -331,6 +331,8 @@ export class Renderer {
   // ---- swell scratch ----
   private swellBuf = new Float32Array(16);
   private swellAmps = new Float32Array(4);
+  /** Per-wave weights for hulls, not for the render: see updateSwellWaves. */
+  private swellBobAmps = new Float32Array(4);
   private crestMeanCache = new Map<number, number>();
 
   constructor(
@@ -606,11 +608,15 @@ export class Renderer {
     const simH = this.simH;
     const rippleGain = 2 * T.rippleAmp;
 
-    const swellGain = T.swellAmp * T.bobSwell;
+    // Note what is *not* here: T.swellAmp. That is how deeply the swell
+    // modulates the dither — a shading depth, not a sea state — and letting it
+    // drive the boats would mean retuning the water's contrast silently
+    // restyled how a ferry rides it. `bobSwell` is the whole story.
+    const swellGain = T.bobSwell;
     const sharp = T.swellSharp;
     const mean = this.crestMean(sharp);
     const wave = this.swellBuf;
-    const amps = this.swellAmps;
+    const amps = this.swellBobAmps;
     const perPx = 1 / cam.scale;
     // hoisted out of the sampler: it runs a handful of times per vessel per
     // frame, and this way the closures are built once instead of per call
@@ -725,6 +731,13 @@ export class Renderer {
       this.swellBuf[i * 4 + 2] = omega;
       this.swellBuf[i * 4 + 3] = phase;
       this.swellAmps[i] = wv.amp / totalAmp;
+      // A hull answers waves long compared to itself and bridges the rest —
+      // 35 m chop slaps a 50 m ferry, it doesn't lift it. Weighting the bob
+      // this way is what keeps boats from shivering on the short components,
+      // and it leaves the drawn water (uSwellAmp) untouched. Not renormalized:
+      // a bigger boat genuinely rides a given sea more calmly.
+      const answer = Math.max(0, Math.min(1, (lambdaM / Math.max(1, T.bobHull) - 1) / 2));
+      this.swellBobAmps[i] = (wv.amp * answer * answer * (3 - 2 * answer)) / totalAmp;
     }
   }
 

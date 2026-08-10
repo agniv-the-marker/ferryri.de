@@ -6,7 +6,7 @@
  * subpaths don't double-darken); color belongs to vessels and UI accents.
  */
 import type { Camera } from './camera';
-import { project, type WorldPt } from './proj';
+import { project, metersPerWorldUnit, type WorldPt } from './proj';
 import type { Route, ScheduleData, Terminal } from '../lib/types';
 import type { VesselState } from '../sim/vessels';
 import { T } from '../lib/tunables';
@@ -109,11 +109,20 @@ const LABEL_MIN_ZOOM: Record<string, number> = {
 };
 
 /**
- * Water-slope response, normalized to ±1. The argument is a height *difference*
- * across the hull; a tenth of a unit is already a steep little wave, so that is
- * where the boat's reaction saturates and the bob tunables read as maxima.
+ * Water-slope response, normalized to ±1. The argument is the height
+ * *difference* between one end of the hull and the other; measured across the
+ * fleet that sits around 0.08 in ordinary water and reaches 0.3 in the
+ * steepest, so a quarter-unit is where a boat's reaction saturates and the bob
+ * tunables read as maxima.
  */
-const slopeUnit = (dh: number) => Math.max(-1, Math.min(1, dh * 10));
+const slopeUnit = (dh: number) => Math.max(-1, Math.min(1, dh * 4));
+
+/** What the water was doing under a hull last frame, so it can lag. */
+interface BobState {
+  h: number;
+  gx: number;
+  gy: number;
+}
 
 /** smoothstep fade for zoom bands */
 const fade = (z: number, from: number, width = 0.6) =>
@@ -165,6 +174,9 @@ export class Overlay {
   private stationRoutes = new Map<string, Route[]>();
   private dpr = Math.min(devicePixelRatio || 1, 2);
   private lastVessels: VesselState[] = [];
+  /** Per-vessel water response, eased frame to frame — see the bob block. */
+  private bobState = new Map<string, BobState>();
+  private lastBobT = 0;
   /** Currently highlighted (selected) stop/vessel for subtle emphasis. */
   selected: Pick | null = null;
 
@@ -363,6 +375,18 @@ export class Overlay {
 
     // ---- vessels ----
     const size = T.vesselSize;
+    // A hull is a physical object in the water, so it is measured in metres,
+    // not pixels: the slope it feels is the one across its own length. (A
+    // fixed screen-space stencil spans kilometres when zoomed out, where it
+    // samples wave crests that have nothing to do with each other and the
+    // boat shivers instead of rolling.)
+    const reach = T.bobHull / 2 / (metersPerWorldUnit(cam.cur.y) / s);
+    // and it has mass, so it can't answer the water instantly
+    const nowT = performance.now() / 1000;
+    const bobDt = Math.min(0.1, nowT - this.lastBobT || 0.016);
+    this.lastBobT = nowT;
+    const ease = T.bobEase > 0.005 ? 1 - Math.exp(-bobDt / T.bobEase) : 1;
+    const bobNext = new Map<string, BobState>();
     for (const v of vessels) {
       const route = this.routeById.get(v.routeId);
       if (!route || !routeVisible(route)) continue;
@@ -388,11 +412,21 @@ export class Overlay {
       let swayY = 0;
       if (water) {
         const ride = v.docked ? T.bobDock : 1;
-        const hgt = water(p.x, p.y);
-        // slope measured across the hull, so the response scales with the boat
-        const reach = Math.max(2, size * 0.5);
-        const gx = water(p.x + reach, p.y) - water(p.x - reach, p.y);
-        const gy = water(p.x, p.y + reach) - water(p.x, p.y - reach);
+        const prev = this.bobState.get(v.trip.id);
+        const raw: BobState = {
+          h: water(p.x, p.y),
+          gx: water(p.x + reach, p.y) - water(p.x - reach, p.y),
+          gy: water(p.x, p.y + reach) - water(p.x, p.y - reach),
+        };
+        const st: BobState = prev
+          ? {
+              h: prev.h + (raw.h - prev.h) * ease,
+              gx: prev.gx + (raw.gx - prev.gx) * ease,
+              gy: prev.gy + (raw.gy - prev.gy) * ease,
+            }
+          : raw;
+        bobNext.set(v.trip.id, st);
+        const { h: hgt, gx, gy } = st;
         lift = -hgt * T.bobLift * ride;
         grow = Math.max(0.5, 1 + hgt * T.bobScale * ride);
         // heel toward the beam-on slope; docked hulls are drawn unrotated, so
@@ -428,6 +462,8 @@ export class Overlay {
       ctx.stroke();
       ctx.restore();
     }
+    // vessels that ended their run drop out of the map with them
+    this.bobState = bobNext;
   }
 
   private label(
