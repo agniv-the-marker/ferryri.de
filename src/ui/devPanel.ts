@@ -93,6 +93,12 @@ function build(): HTMLElement {
         val.textContent = input.value;
       });
       row.append(input, val);
+    } else if (spec.kind === 'bool') {
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = T[key as TunableKey] as boolean;
+      input.addEventListener('change', () => setTunable(key as TunableKey, input.checked));
+      row.append(input, document.createElement('span'));
     } else {
       const input = document.createElement('input');
       input.type = 'color';

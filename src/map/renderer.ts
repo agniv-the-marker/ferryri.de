@@ -321,6 +321,13 @@ export class Renderer {
   /** Previous step's camera remap, for composing the t-1 field's mapping. */
   private lastMap: [number, number, number] = [1, 0, 0];
 
+  // ---- wave-field readback (so the CPU can float boats on the sim) ----
+  /** Last completed copy of the ripple field, RGBA bytes, rows bottom-up. */
+  private probePixels: Uint8Array | null = null;
+  private probePbo: WebGLBuffer | null = null;
+  private probeSync: WebGLSync | null = null;
+  private probeFresh = false;
+
   // ---- swell scratch ----
   private swellBuf = new Float32Array(16);
   private swellAmps = new Float32Array(4);
@@ -423,6 +430,7 @@ export class Renderer {
 
     // ripple sim grid at 1/3 css resolution
     const gl = this.gl;
+    this.discardProbe(); // grid size changed: the readback buffers must follow
     this.simW = Math.max(8, Math.ceil(w / 3));
     this.simH = Math.max(8, Math.ceil(h / 3));
     for (let i = 0; i < 3; i++) {
@@ -517,6 +525,138 @@ export class Renderer {
   }
 
   /**
+   * Keep a CPU-side copy of the ripple field current, without ever making the
+   * CPU wait on the GPU: `readPixels` targets a pixel-pack buffer and a fence
+   * says when the copy has landed, so the data is collected a frame or two
+   * later instead of stalling the frame that asked for it. Only pumped while
+   * boat bobbing is on — nothing else needs the field on this side.
+   */
+  private pumpProbe() {
+    const gl = this.gl;
+    const bytes = this.simW * this.simH * 4;
+    if (!this.probePbo) {
+      this.probePbo = gl.createBuffer();
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.probePbo);
+      gl.bufferData(gl.PIXEL_PACK_BUFFER, bytes, gl.STREAM_READ);
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      this.probePixels = new Uint8Array(bytes);
+    }
+    if (this.probeSync) {
+      const status = gl.clientWaitSync(this.probeSync, 0, 0);
+      if (status === gl.TIMEOUT_EXPIRED) return; // still in flight; try next frame
+      if (status !== gl.WAIT_FAILED) {
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.probePbo);
+        gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, this.probePixels!);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+        this.probeFresh = true;
+      }
+      gl.deleteSync(this.probeSync);
+      this.probeSync = null;
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.simFbo[this.simCurr]!);
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.probePbo);
+    gl.readPixels(0, 0, this.simW, this.simH, gl.RGBA, gl.UNSIGNED_BYTE, 0);
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    this.probeSync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+    gl.flush();
+  }
+
+  private discardProbe() {
+    const gl = this.gl;
+    if (this.probeSync) gl.deleteSync(this.probeSync);
+    if (this.probePbo) gl.deleteBuffer(this.probePbo);
+    this.probeSync = null;
+    this.probePbo = null;
+    this.probePixels = null;
+    this.probeFresh = false;
+  }
+
+  /**
+   * Blocking version of the readback, for the headless dev kicks: they drive
+   * `draw` in a tight synchronous loop where a fence never gets the chance to
+   * signal between frames.
+   */
+  probeNow() {
+    const gl = this.gl;
+    if (!this.probePixels) this.probePixels = new Uint8Array(this.simW * this.simH * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.simFbo[this.simCurr]!);
+    gl.readPixels(0, 0, this.simW, this.simH, gl.RGBA, gl.UNSIGNED_BYTE, this.probePixels);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    this.probeFresh = true;
+  }
+
+  /**
+   * A closure giving the water's surface height under any css-pixel point, or
+   * null when boat bobbing is off. Height is in the same units the water
+   * shader adds to its dither threshold — tap ripples read back from the sim
+   * grid, plus the analytic swell evaluated exactly as the shader does it, so
+   * a hull rides the water you can actually see. Positive = crest.
+   *
+   * The swell is sampled without the shader's zoom fade: the pattern stops
+   * being drawn at dock zoom because it reads as screen-space noise there,
+   * but the sea is no calmer, and a becalmed boat next to a moving one looks
+   * broken.
+   */
+  waterSampler(cam: Camera, timeSec: number): ((x: number, y: number) => number) | null {
+    if (!T.bobEnable) return null;
+    const { w, h } = cam.viewport;
+    const px = this.probeFresh ? this.probePixels : null;
+    const simW = this.simW;
+    const simH = this.simH;
+    const rippleGain = 2 * T.rippleAmp;
+
+    const swellGain = T.swellAmp * T.bobSwell;
+    const sharp = T.swellSharp;
+    const mean = this.crestMean(sharp);
+    const wave = this.swellBuf;
+    const amps = this.swellAmps;
+    const perPx = 1 / cam.scale;
+    // hoisted out of the sampler: it runs a handful of times per vessel per
+    // frame, and this way the closures are built once instead of per call
+    const at = (ix: number, iy: number) => px![(iy * simW + ix) * 4]! / 255 - 0.5;
+
+    return (x: number, y: number) => {
+      let hgt = 0;
+      if (px) {
+        // sim uv: x runs with the screen, y is flipped (readPixels row 0 is
+        // the bottom of the viewport). Bilinear so a hull glides over the
+        // 3-css-pixel grid instead of stepping across it.
+        const fx = (x / w) * simW - 0.5;
+        const fy = (1 - y / h) * simH - 0.5;
+        const x0 = Math.floor(fx);
+        const y0 = Math.floor(fy);
+        const tx = fx - x0;
+        const ty = fy - y0;
+        const cx0 = x0 < 0 ? 0 : x0 > simW - 1 ? simW - 1 : x0;
+        const cy0 = y0 < 0 ? 0 : y0 > simH - 1 ? simH - 1 : y0;
+        const cx1 = x0 + 1 < 0 ? 0 : x0 + 1 > simW - 1 ? simW - 1 : x0 + 1;
+        const cy1 = y0 + 1 < 0 ? 0 : y0 + 1 > simH - 1 ? simH - 1 : y0 + 1;
+        const top = at(cx0, cy0) + (at(cx1, cy0) - at(cx0, cy0)) * tx;
+        const bot = at(cx0, cy1) + (at(cx1, cy1) - at(cx0, cy1)) * tx;
+        hgt += (top + (bot - top) * ty) * rippleGain;
+      }
+      if (swellGain > 0) {
+        // camera-relative, exactly like the shader — the phase for the camera
+        // centre is already folded into wave[i * 4 + 3]
+        const relX = (x - w / 2) * perPx;
+        const relY = (y - h / 2) * perPx;
+        let sw = 0;
+        for (let i = 0; i < 4; i++) {
+          const theta =
+            wave[i * 4]! * relX +
+            wave[i * 4 + 1]! * relY +
+            wave[i * 4 + 3]! -
+            wave[i * 4 + 2]! * timeSec;
+          sw += amps[i]! * (Math.pow(Math.sin(theta) * 0.5 + 0.5, sharp) - mean);
+        }
+        hgt += sw * swellGain;
+      }
+      return hgt;
+    };
+  }
+
+  /**
    * Mean of ((sin θ + 1)/2)^p over a full period — subtracted from each crest
    * so sharpening the crests doesn't also brighten the whole sea.
    */
@@ -559,8 +699,15 @@ export class Renderer {
       this.crestMean(T.swellSharp),
     );
     gl.uniform1f(this.u.uSwellCalm ?? null, T.swellCalm);
-    if (fade <= 0) return;
+    // The wave parameters are refreshed even when the swell has faded out of
+    // the render: hulls keep riding it at dock zoom, where the pattern is too
+    // coarse to draw but the water is still moving.
+    this.updateSwellWaves(cam);
+    gl.uniform4fv(this.u['uSwell[0]'] ?? null, this.swellBuf);
+    gl.uniform1fv(this.u['uSwellAmp[0]'] ?? null, this.swellAmps);
+  }
 
+  private updateSwellWaves(cam: Camera) {
     const mpwu = metersPerWorldUnit(cam.cur.y);
     const totalAmp = SWELL_WAVES.reduce((a, w) => a + w.amp, 0);
     for (let i = 0; i < SWELL_WAVES.length; i++) {
@@ -579,8 +726,6 @@ export class Renderer {
       this.swellBuf[i * 4 + 3] = phase;
       this.swellAmps[i] = wv.amp / totalAmp;
     }
-    gl.uniform4fv(this.u['uSwell[0]'] ?? null, this.swellBuf);
-    gl.uniform1fv(this.u['uSwellAmp[0]'] ?? null, this.swellAmps);
   }
 
   /**
@@ -674,6 +819,8 @@ export class Renderer {
     const gl = this.gl;
     this.updateMask(cam);
     if (animate) this.stepRipples(cam);
+    // a still field can't rock anything, so don't pay for the readback
+    if (animate && T.bobEnable) this.pumpProbe();
 
     // Settle the water-noise level only while the camera isn't zooming, so
     // zooming scales the pattern with the map instead of boiling it.

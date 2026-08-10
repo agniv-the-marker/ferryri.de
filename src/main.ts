@@ -17,7 +17,7 @@ import { Sheet } from './ui/sheet';
 import { Chips } from './ui/chips';
 import { terminalBoard, vesselCard, type BoardCtx, type BoardHandle } from './ui/board';
 import type { ScheduleData, Terminal } from './lib/types';
-import { T, applyDomTunables } from './lib/tunables';
+import { T, applyDomTunables, setTunable } from './lib/tunables';
 import { initVisibility, onVisibilityChange, routeVisible } from './lib/visibility';
 
 const BASE = import.meta.env.BASE_URL;
@@ -115,6 +115,10 @@ async function boot() {
   const wtFrozen = Number.isFinite(wtParam) && wtParam > 0;
   if (wtFrozen) waterTime = wtParam;
 
+  // dev: ?bob turns on boat bobbing (off by default; also a dev-panel switch)
+  const bobParam = new URLSearchParams(location.search).get('bob');
+  if (bobParam !== null) setTunable('bobEnable', bobParam !== '0');
+
   // ---- simulation state (recomputed when the service day changes) ----
   const bootWall = simNow();
   const bootLt = localTime(bootWall);
@@ -210,7 +214,12 @@ async function boot() {
     }
     currentSec = lt.sec + wall.getMilliseconds() / 1000;
     lastVesselList = vesselsAt(schedule, timed, currentSec);
-    overlay.draw(camera, lastVesselList);
+    // boats ride the water only when it is moving in the first place
+    overlay.draw(
+      camera,
+      lastVesselList,
+      reducedMotion.matches ? null : renderer.waterSampler(camera, waterTime),
+    );
     chips.update(camera);
 
     // minute tick: refresh open board / vessel card
@@ -271,7 +280,10 @@ async function boot() {
       const { w, h } = camera.viewport;
       renderer.addRipple(w / 2, h / 2);
       for (let i = 0; i < 150; i++) renderer.draw(camera, waterTime, true);
-      overlay.draw(camera, lastVesselList);
+      // a fence never signals inside a synchronous loop — take the field the
+      // blocking way so bobbing shows up in the screenshot too
+      renderer.probeNow();
+      overlay.draw(camera, lastVesselList, renderer.waterSampler(camera, waterTime));
     }, 300);
   }
 

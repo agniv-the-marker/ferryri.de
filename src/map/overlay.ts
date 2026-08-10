@@ -108,6 +108,13 @@ const LABEL_MIN_ZOOM: Record<string, number> = {
   '7213': 11.2, // Mare Island (next to Vallejo)
 };
 
+/**
+ * Water-slope response, normalized to ±1. The argument is a height *difference*
+ * across the hull; a tenth of a unit is already a steep little wave, so that is
+ * where the boat's reaction saturates and the bob tunables read as maxima.
+ */
+const slopeUnit = (dh: number) => Math.max(-1, Math.min(1, dh * 10));
+
 /** smoothstep fade for zoom bands */
 const fade = (z: number, from: number, width = 0.6) =>
   Math.max(0, Math.min(1, (z - from) / width));
@@ -215,7 +222,15 @@ export class Overlay {
     this.canvas.height = Math.round(h * this.dpr);
   }
 
-  draw(cam: Camera, vessels: VesselState[]) {
+  /**
+   * @param water optional water-height sampler (css px → surface height);
+   *   when present, hulls ride the ripple/swell field instead of sitting flat.
+   */
+  draw(
+    cam: Camera,
+    vessels: VesselState[],
+    water: ((x: number, y: number) => number) | null = null,
+  ) {
     this.lastVessels = vessels;
     const ctx = this.ctx;
     const { w, h } = cam.viewport;
@@ -360,10 +375,44 @@ export class Overlay {
       const selected =
         this.selected?.type === 'vessel' &&
         this.selected.vessel.trip.id === v.trip.id;
+      // ---- ride the water ----
+      // A top-down map has no vertical axis, so "bobbing" is spelled the way a
+      // print illustrator would: a crest nudges the hull up the page and draws
+      // it a touch larger (nearer the eye), and the slope under it shoulders
+      // the boat off its heading and slides it toward the trough. Docked
+      // vessels are on lines, so they only murmur.
+      let lift = 0;
+      let grow = 1;
+      let rock = 0;
+      let swayX = 0;
+      let swayY = 0;
+      if (water) {
+        const ride = v.docked ? T.bobDock : 1;
+        const hgt = water(p.x, p.y);
+        // slope measured across the hull, so the response scales with the boat
+        const reach = Math.max(2, size * 0.5);
+        const gx = water(p.x + reach, p.y) - water(p.x - reach, p.y);
+        const gy = water(p.x, p.y + reach) - water(p.x, p.y - reach);
+        lift = -hgt * T.bobLift * ride;
+        grow = Math.max(0.5, 1 + hgt * T.bobScale * ride);
+        // heel toward the beam-on slope; docked hulls are drawn unrotated, so
+        // their beam is the screen's y axis
+        const dir = v.docked ? 0 : v.heading;
+        rock =
+          (slopeUnit(-Math.sin(dir) * gx + Math.cos(dir) * gy) *
+            T.bobRock *
+            ride *
+            Math.PI) /
+          180;
+        swayX = -slopeUnit(gx) * T.bobSway * ride;
+        swayY = -slopeUnit(gy) * T.bobSway * ride;
+      }
+
       ctx.save();
-      ctx.translate(p.x, p.y);
-      if (!v.docked) ctx.rotate(v.heading);
-      const L = size * (selected ? 1.25 : 1);
+      ctx.translate(p.x + swayX, p.y + lift + swayY);
+      if (!v.docked) ctx.rotate(v.heading + rock);
+      else if (rock) ctx.rotate(rock);
+      const L = size * (selected ? 1.25 : 1) * grow;
       const W2 = L * 0.36;
       ctx.beginPath();
       // pointed-bow hull
