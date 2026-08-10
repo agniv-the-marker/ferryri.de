@@ -25,6 +25,8 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
 - `?sel=<stopId>` — open a terminal board on load (Ferry Building = 7201)
 - `?wt=<sec>` — freeze water animation at a fixed time
 - `?ripple` / `?ripplekick` — automatic ripples for tuning / headless testing
+- `?bob` — boats ride the water (off by default; `?bob=0` forces it off). Same
+  switch as the dev panel's "bob" group; the rest of that group tunes it.
 
 ## Architecture
 
@@ -34,7 +36,9 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
   departures know their gate natively.
 - `src/map/renderer.ts` — WebGL2: Bayer-dithered water w/ zoom-settled fractal
   noise, hillshade land, coastline from the rasterized land-mask texture, and
-  a wave-equation ripple sim (land = reflective boundary).
+  a wave-equation ripple sim (land = reflective boundary). `waterSampler()`
+  reads that field back (async PBO + fence, only while boat bob is on) and adds
+  the analytic swell, so the overlay can float hulls on the water it draws.
 - `src/map/camera.ts` — damped camera; input only moves the *target*.
 - `src/sim/` — pure schedule math: active services, vessel interpolation
   along GTFS shapes via `shape_dist_traveled`.

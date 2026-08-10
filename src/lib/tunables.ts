@@ -24,7 +24,14 @@ export interface ColorSpec {
   value: string;
 }
 
-export type Spec = NumSpec | ColorSpec;
+export interface BoolSpec {
+  kind: 'bool';
+  label: string;
+  group: string;
+  value: boolean;
+}
+
+export type Spec = NumSpec | ColorSpec | BoolSpec;
 
 const num = (
   group: string,
@@ -34,6 +41,13 @@ const num = (
   max: number,
   step: number,
 ): NumSpec => ({ kind: 'num', group, label, value, min, max, step });
+
+const bool = (group: string, label: string, value: boolean): BoolSpec => ({
+  kind: 'bool',
+  group,
+  label,
+  value,
+});
 
 const color = (group: string, label: string, value: string, cssVar?: string): ColorSpec => ({
   kind: 'color',
@@ -90,6 +104,17 @@ export const SPECS = {
   rippleRadius: num('ripple', 'tap size px', 12, 3, 40, 1),
   rippleAmp: num('ripple', 'visual strength', 1.75, 0, 2.5, 0.05),
 
+  // ---- boat bob (vessels ride the ripple field + the open-water swell) ----
+  // Off by default: it costs a per-frame readback of the wave field, and the
+  // right amount of motion is a taste call. Force it on with ?bob.
+  bobEnable: bool('bob', 'boats bob', false),
+  bobSwell: num('bob', 'swell share', 0.6, 0, 2, 0.05),
+  bobLift: num('bob', 'lift px', 4, 0, 12, 0.25),
+  bobScale: num('bob', 'size swell', 0.12, 0, 0.6, 0.01),
+  bobRock: num('bob', 'rock °', 6, 0, 30, 0.5),
+  bobSway: num('bob', 'sway px', 1.5, 0, 8, 0.1),
+  bobDock: num('bob', 'docked ×', 0.4, 0, 1, 0.05),
+
   // ---- camera ----
   camStiffness: num('camera', 'damping stiffness', 12.5, 2, 20, 0.5),
   camFlyStiffness: num('camera', 'fly stiffness', 3.2, 1, 12, 0.2),
@@ -126,8 +151,8 @@ export function onTune(fn: () => void) {
   listeners.add(fn);
 }
 
-export function setTunable(key: TunableKey, v: number | string) {
-  (T as Record<string, number | string>)[key] = v;
+export function setTunable(key: TunableKey, v: number | string | boolean) {
+  (T as Record<string, number | string | boolean>)[key] = v;
   const spec = SPECS[key];
   if (spec.kind === 'color' && spec.cssVar && typeof v === 'string') {
     document.documentElement.style.setProperty(spec.cssVar, v);
