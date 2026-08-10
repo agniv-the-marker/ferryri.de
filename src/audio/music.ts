@@ -92,6 +92,10 @@ export class Music {
   debugStationNotes = 0;
   debugLineNotes = 0;
   debugWavePeak = 0;
+  /** Notes the pool refused — should stay near zero for anything you did. */
+  get debugDropped(): number {
+    return this.engine?.debugDropped ?? 0;
+  }
 
   constructor(data: ScheduleData) {
     this.voices = assignVoices(data.routes);
@@ -213,15 +217,15 @@ export class Music {
         const height = Math.abs(ripple(x, y));
         if (height > this.debugWavePeak) this.debugWavePeak = height;
         if (!this.arrived(v.trip.id, height, now, gate)) continue;
-        this.debugWaveNotes++;
-        this.engine.play({
+        if (this.engine.play({
           preset: voice.preset,
           freq: degreeToFreq(voice, this.degreeOf(v, state.nowSec)),
           when: now + 0.02,
           ring: T.musicRing * 0.6,
           velocity: Math.min(0.9, 0.3 + height * 2) * hulls * this.duck(v.routeId, state.spotlight),
           pan: this.panOf(v, state),
-        });
+          priority: 3,
+        })) this.debugWaveNotes++;
       }
     }
 
@@ -244,15 +248,15 @@ export class Music {
           if (at > height) height = at;
         }
         if (!this.arrived(`s${st.id}`, height, now, gate)) continue;
-        this.debugStationNotes++;
-        this.engine.play({
+        if (this.engine.play({
           preset: STATION,
           freq: degreeToFreq(this.stationVoice, st.degree),
           when: now + 0.02,
           ring: T.musicRing,
           velocity: Math.min(0.8, 0.28 + height * 1.6) * stops,
           pan: panOfX(x),
-        });
+          priority: 2,
+        })) this.debugStationNotes++;
       }
     }
 
@@ -267,15 +271,15 @@ export class Music {
         if (x < 0 || y < 0 || x > w || y > h) continue;
         const height = Math.abs(ripple(x, y));
         if (!this.arrived(`l${i}`, height, now, gate)) continue;
-        this.debugLineNotes++;
-        this.engine.play({
+        if (this.engine.play({
           preset: LINE,
           freq: degreeToFreq(this.lineVoice, post.degree),
           when: now + 0.02,
           ring: T.musicRing * 0.4,
           velocity: 0.3 * lines * this.duck(post.routeId, state.spotlight),
           pan: panOfX(x),
-        });
+          priority: 1,
+        })) this.debugLineNotes++;
       }
     }
   }
@@ -356,6 +360,7 @@ export class Music {
       when: ctx.currentTime + 0.01,
       ring: 2.2,
       velocity: 0.6 * T.musicRippleBell,
+      priority: 3,
     });
   }
 
@@ -393,6 +398,7 @@ export class Music {
         when: t0 + n.at,
         ring: T.musicRing,
         velocity: n.velocity * T.musicPhrase,
+        priority: 3,
       });
     }
   }
