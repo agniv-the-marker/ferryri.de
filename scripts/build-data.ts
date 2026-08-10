@@ -21,7 +21,7 @@ import type {
 } from '../src/lib/types.ts';
 
 const OUT = join(dirname(fileURLToPath(import.meta.url)), '../public/data/schedule.json');
-const VERIFIED_AT = '2026-08-09';
+const VERIFIED_AT = '2026-08-10';
 
 const OPERATORS: Operator[] = [
   { id: 'sfbf', name: 'San Francisco Bay Ferry', short: 'SFBF', kind: 'public', color: '#008c99', website: 'https://sanfranciscobayferry.com', attribution: 'ODC-BY' },
@@ -122,6 +122,13 @@ function muteColor(hex: string): string {
 const parseTime = (t: string) => {
   const [h = 0, m = 0, s = 0] = t.split(':').map(Number);
   return h * 3600 + m * 60 + s;
+};
+const parseClock = (text: string) => {
+  const match = text.match(/^(\d{1,2})(?::(\d{2}))?(am|pm)$/i);
+  if (!match) throw new Error(`invalid clock time: ${text}`);
+  let hour = Number(match[1]) % 12;
+  if (match[3]!.toLowerCase() === 'pm') hour += 12;
+  return hour * 3600 + Number(match[2] ?? 0) * 60;
 };
 const stripTerminalName = (name: string) => name.replace(/ (Ferry Terminal|Ferry Landing|Ferry Dock|Marine Terminal|Water Shuttle Dock|Terminal|Dock)$/i, '');
 
@@ -280,13 +287,87 @@ async function main() {
     const color = r.color ?? OPERATORS.find((o) => o.id === r.operator)!.color;
     routes.push({ ...r, color, accent: muteColor(color) });
   };
-  ext({ id: 'ti:sf', short: 'TI', name: 'Treasure Island', sort: 200, directions: ['Treasure Island', 'San Francisco'], operator: 'ti', serviceClass: 'transport', status: 'active', scheduleMode: 'external', terminals: ['7201', 'treasure-island'], displayPath: [[-122.3938,37.7965],[-122.381,37.802],[-122.3713,37.8175]], ticketing: { methods: ['mobile-ticket','paper-ticket','cash'], purchase: 'recommended', note: 'Clipper is not accepted. Buy online, in the app, or at boarding.', purchaseUrl: 'https://www.tisf.com/ferry', scheduleUrl: 'https://www.tisf.com/ferry', verifiedAt: VERIFIED_AT } });
-  ext({ id: 'aitf:angel', short: 'AI', name: 'Tiburon–Angel Island', sort: 210, directions: ['Angel Island', 'Tiburon'], operator: 'aitf', serviceClass: 'transport', status: 'active', scheduleMode: 'external', terminals: ['tiburon','angel-island'], displayPath: [[-122.4562,37.8729],[-122.447,37.87],[-122.4349,37.8685]], ticketing: { methods: ['mobile-ticket','paper-ticket'], purchase: 'recommended', note: 'Advance booking is recommended; fare includes park admission.', purchaseUrl: 'https://angelislandferry.com/schedule', scheduleUrl: 'https://angelislandferry.com/schedule', verifiedAt: VERIFIED_AT } });
+  ext({ id: 'ti:sf', short: 'TI', name: 'Treasure Island', sort: 200, directions: ['Treasure Island', 'San Francisco'], operator: 'ti', serviceClass: 'transport', status: 'active', scheduleMode: 'curated', terminals: ['7201', 'treasure-island'], displayPath: [[-122.3938,37.7965],[-122.381,37.802],[-122.3713,37.8175]], ticketing: { methods: ['mobile-ticket','paper-ticket','cash'], purchase: 'recommended', note: 'Published schedule saved locally; check the operator for service alerts. Clipper is not accepted.', purchaseUrl: 'https://www.tisf.com/ferry', scheduleUrl: 'https://www.tisf.com/ferry', verifiedAt: VERIFIED_AT } });
+  ext({ id: 'aitf:angel', short: 'AI', name: 'Tiburon–Angel Island', sort: 210, directions: ['Angel Island', 'Tiburon'], operator: 'aitf', serviceClass: 'transport', status: 'active', scheduleMode: 'curated', terminals: ['tiburon','angel-island'], displayPath: [[-122.4562,37.8729],[-122.447,37.87],[-122.4349,37.8685]], ticketing: { methods: ['mobile-ticket','paper-ticket'], purchase: 'recommended', note: 'Published seasonal schedule saved locally; camper-only departures are excluded. Advance booking is recommended.', purchaseUrl: 'https://angelislandferry.com/schedule', scheduleUrl: 'https://angelislandferry.com/schedule', verifiedAt: VERIFIED_AT } });
   ext({ id: 'alcatraz:day', short: 'ALC', name: 'Alcatraz Island', sort: 300, directions: ['Alcatraz', 'San Francisco'], operator: 'alcatraz', serviceClass: 'attraction', status: 'active', scheduleMode: 'external', terminals: ['pier-33','alcatraz'], displayPath: [[-122.405,37.8067],[-122.414,37.816],[-122.4228,37.8267]], ticketing: { methods: ['mobile-ticket','paper-ticket'], purchase: 'required', note: 'A timed ferry ticket is required to visit Alcatraz.', purchaseUrl: 'https://alcatrazcitycruises.com/tickets/?refid=compare-tour-options', scheduleUrl: 'https://alcatrazcitycruises.com/plan-your-visit/schedule/', verifiedAt: VERIFIED_AT } });
   ext({ id: 'bluegold:bay', short: 'BAY', name: 'San Francisco Bay Cruise', sort: 310, directions: ['Cruise', 'Cruise'], operator: 'bluegold', serviceClass: 'attraction', status: 'active', scheduleMode: 'external', terminals: ['pier-39'], displayPath: [[-122.4102,37.8098],[-122.425,37.8125],[-122.445,37.8155],[-122.466,37.8185],[-122.4785,37.8202],[-122.469,37.823],[-122.448,37.826],[-122.430,37.830],[-122.419,37.832],[-122.414,37.826],[-122.408,37.819],[-122.4102,37.8098]], ticketing: { methods: ['mobile-ticket','paper-ticket','cash'], purchase: 'recommended', note: 'Timed cruise tickets are sold separately; Clipper is not accepted.', purchaseUrl: 'https://www.blueandgoldfleet.com/buy-tickets/', scheduleUrl: 'https://www.blueandgoldfleet.com/visitor-information/', verifiedAt: VERIFIED_AT } });
   ext({ id: 'redwhite:bay', short: 'BAY', name: 'Golden Gate Bay Cruise', sort: 320, directions: ['Cruise', 'Cruise'], operator: 'redwhite', serviceClass: 'attraction', status: 'active', scheduleMode: 'external', terminals: ['pier-43'], displayPath: [[-122.4153,37.8099],[-122.428,37.8132],[-122.447,37.8162],[-122.467,37.8191],[-122.4785,37.8202],[-122.468,37.824],[-122.447,37.827],[-122.429,37.831],[-122.418,37.8315],[-122.412,37.824],[-122.409,37.816],[-122.4153,37.8099]], ticketing: { methods: ['mobile-ticket','paper-ticket'], purchase: 'recommended', note: 'This is a ticketed sightseeing cruise.', purchaseUrl: 'https://www.redandwhite.com/', scheduleUrl: 'https://www.redandwhite.com/schedule', verifiedAt: VERIFIED_AT } });
   ext({ id: 'bluegold:sausalito', short: 'SAU', name: 'Pier 41–Sausalito', sort: 400, directions: ['Sausalito', 'San Francisco'], operator: 'bluegold', serviceClass: 'transport', status: 'paused', scheduleMode: 'external', terminals: ['pier-39','sausalito'], displayPath: [[-122.4102,37.8098],[-122.445,37.827],[-122.4775,37.8562]], ticketing: { methods: ['mobile-ticket','paper-ticket'], purchase: 'none', note: 'Service suspended May 3, 2026; use Golden Gate Ferry instead.', scheduleUrl: 'https://www.blueandgoldfleet.com/', verifiedAt: VERIFIED_AT } });
   ext({ id: 'sfbf:redwood-future', short: 'RWC', name: 'Redwood City (proposed)', sort: 500, directions: ['Redwood City', 'San Francisco'], operator: 'sfbf', serviceClass: 'transport', status: 'future', scheduleMode: 'external', terminals: ['7201','redwood-city'], displayPath: [[-122.3938,37.7965],[-122.32,37.69],[-122.25,37.57],[-122.2015,37.5124]], ticketing: { methods: [], purchase: 'none', note: 'Proposed service; no passenger timetable or tickets are available.', scheduleUrl: 'https://weta.sanfranciscobayferry.com/', verifiedAt: VERIFIED_AT } });
+
+  // Locally curated from the operators' published rider-facing timetables.
+  // These are deliberately marked `curated`, not GTFS, and retain links to
+  // the live official pages for alerts and last-minute changes.
+  const addShape = (id: string, points: [number, number][]) => {
+    let total = 0;
+    const dist = [0];
+    for (let i = 1; i < points.length; i++) {
+      const [lng0, lat0] = points[i - 1]!;
+      const [lng1, lat1] = points[i]!;
+      const y = (lat1 - lat0) * 111_320;
+      const x = (lng1 - lng0) * 111_320 * Math.cos(((lat0 + lat1) / 2) * Math.PI / 180);
+      total += Math.hypot(x, y);
+      dist.push(Math.round(total));
+    }
+    shapes[id] = { pts: points, dist };
+  };
+  const addSailings = (
+    route: string,
+    service: string,
+    prefix: string,
+    from: string,
+    to: string,
+    times: string[],
+    minutes: number,
+    shape: string,
+    dir: 0 | 1,
+  ) => {
+    const endDist = shapes[shape]!.dist.at(-1)!;
+    for (const [i, clock] of times.entries()) {
+      const dep = parseClock(clock);
+      const arr = dep + minutes * 60;
+      trips.push({
+        id: `${prefix}:${i}`, route, service, dir, shape,
+        stops: [
+          { stop: from, arr: dep, dep, dist: 0 },
+          { stop: to, arr, dep: arr, dist: endDist },
+        ],
+      });
+    }
+  };
+
+  const tiPath: [number, number][] = [[-122.3713,37.8175],[-122.381,37.802],[-122.3938,37.7965]];
+  addShape('ti:to-sf', tiPath);
+  addShape('ti:to-island', [...tiPath].reverse());
+  services['ti:weekday'] = { days: 0b0011111, start: '20260101', end: '20261231', add: [], remove: [] };
+  services['ti:weekend'] = { days: 0b1100000, start: '20260101', end: '20261231', add: [], remove: [] };
+  addSailings('ti:sf', 'ti:weekday', 'ti:wd:island-sf', 'treasure-island', '7201', ['7:30am','8:10am','8:45am','10:20am','11:30am','12:15pm','1:00pm','3:00pm','3:55pm','4:35pm','5:50pm','6:30pm','7:15pm','8:00pm'], 8, 'ti:to-sf', 0);
+  addSailings('ti:sf', 'ti:weekday', 'ti:wd:sf-island', '7201', 'treasure-island', ['7:50am','8:25am','9:05am','10:40am','11:50am','12:35pm','1:20pm','3:20pm','4:15pm','4:55pm','6:10pm','6:50pm','7:35pm','8:20pm'], 8, 'ti:to-island', 1);
+  addSailings('ti:sf', 'ti:weekend', 'ti:we:island-sf', 'treasure-island', '7201', ['9:30am','10:15am','11:00am','12:00pm','12:45pm','1:30pm','3:30pm','4:15pm','5:00pm','6:15pm','7:00pm','7:45pm','8:30pm'], 8, 'ti:to-sf', 0);
+  addSailings('ti:sf', 'ti:weekend', 'ti:we:sf-island', '7201', 'treasure-island', ['9:50am','10:35am','11:20am','12:20pm','1:05pm','1:50pm','3:50pm','4:35pm','5:20pm','6:35pm','7:20pm','8:05pm','8:50pm'], 8, 'ti:to-island', 1);
+
+  const aiPath: [number, number][] = [[-122.4562,37.8729],[-122.447,37.87],[-122.4349,37.8685]];
+  addShape('aitf:to-island', aiPath);
+  addShape('aitf:to-tiburon', [...aiPath].reverse());
+  services['aitf:summer-weekday'] = { days: 0b0011111, start: '20260601', end: '20260913', add: [], remove: ['20260907'] };
+  services['aitf:summer-weekend'] = { days: 0b1100000, start: '20260601', end: '20260913', add: ['20260907'], remove: [] };
+  services['aitf:fall-weekday'] = { days: 0b0011100, start: '20260914', end: '20261031', add: [], remove: [] };
+  services['aitf:fall-weekend-a'] = { days: 0b1100000, start: '20260914', end: '20261011', add: [], remove: [] };
+  services['aitf:fall-weekend-b'] = { days: 0b1100000, start: '20261012', end: '20261031', add: [], remove: [] };
+  const aiWeekdayOut = ['10:00am','11:00am','1:00pm'];
+  const aiWeekdayBack = ['10:20am','11:20am','1:20pm','3:20pm'];
+  const aiWeekendOut = ['10:00am','11:00am','1:00pm','2:00pm','3:00pm','4:00pm'];
+  const aiWeekendBack = ['10:20am','11:20am','1:20pm','2:20pm','3:20pm','4:20pm','5:20pm'];
+  for (const service of ['aitf:summer-weekday','aitf:fall-weekday']) {
+    addSailings('aitf:angel', service, `${service}:out`, 'tiburon', 'angel-island', aiWeekdayOut, 15, 'aitf:to-island', 0);
+    addSailings('aitf:angel', service, `${service}:back`, 'angel-island', 'tiburon', aiWeekdayBack, 15, 'aitf:to-tiburon', 1);
+  }
+  for (const service of ['aitf:summer-weekend','aitf:fall-weekend-a']) {
+    addSailings('aitf:angel', service, `${service}:out`, 'tiburon', 'angel-island', aiWeekendOut, 15, 'aitf:to-island', 0);
+    addSailings('aitf:angel', service, `${service}:back`, 'angel-island', 'tiburon', aiWeekendBack, 15, 'aitf:to-tiburon', 1);
+  }
+  addSailings('aitf:angel', 'aitf:fall-weekend-b', 'aitf:fall-weekend-b:out', 'tiburon', 'angel-island', aiWeekendOut.slice(0, -1), 15, 'aitf:to-island', 0);
+  addSailings('aitf:angel', 'aitf:fall-weekend-b', 'aitf:fall-weekend-b:back', 'angel-island', 'tiburon', aiWeekendBack.slice(0, -1), 15, 'aitf:to-tiburon', 1);
 
   routes.sort((a, b) => a.sort - b.sort);
   const feedEnd = Object.values(services).map((s) => s.end).sort().at(-1)!;

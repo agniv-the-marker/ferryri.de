@@ -161,7 +161,7 @@ function plannerView(
   let activeTab = 0;
   let cur = ctx; // latest context, so filter/time changes re-render in place
   const syncRouteSelect = () => {
-    const eligible = routesAt(cur, terminal, false).filter((r) => r.scheduleMode === 'gtfs');
+    const eligible = routesAt(cur, terminal, false).filter((r) => r.scheduleMode !== 'external');
     routeSel.hidden = eligible.length <= 1;
     routeSel.replaceChildren();
     if (eligible.length <= 1) return;

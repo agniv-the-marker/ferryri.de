@@ -186,7 +186,7 @@ export class Overlay {
             else path.lineTo(p.x, p.y);
           });
         }
-        if (r.displayPath) addSmoothPath(path, r.displayPath);
+        if (!shapesByRoute.has(r.id) && r.displayPath) addSmoothPath(path, r.displayPath);
         return { route: r, path };
       });
     this.places = PLACES.map((p) => ({

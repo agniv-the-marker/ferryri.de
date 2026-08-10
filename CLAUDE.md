@@ -1,8 +1,9 @@
 # ferryri.de — sf ferry rides
 
 Live map of scheduled Bay Area ferry services. Vessels are **simulated from
-official SF Bay Ferry and Golden Gate Ferry GTFS timetables + wall clock**;
-operators without reliable GTFS appear with official schedule/ticket links.
+official SF Bay Ferry and Golden Gate Ferry GTFS timetables, plus locally
+curated Treasure Island and Angel Island–Tiburon published schedules**;
+operators without machine-readable timetables appear with official links.
 Paper-and-ink
 aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
 
@@ -11,7 +12,8 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
 - `npm run dev` — Vite dev server
 - `npm run build` — typecheck + production build to `dist/`
 - `npm run data` — refresh `public/data/schedule.json` from the official SF Bay
-  Ferry and Golden Gate feeds and merge the curated external-service catalog.
+  Ferry and Golden Gate feeds and merge locally curated published schedules
+  and the external-service catalog.
 - `npm run geo` — one-time rebuild of `public/data/coast.json` (MTC/TIGER
   shoreline) and `topo.png` (terrarium hillshade). Outputs are committed.
 

@@ -18,7 +18,7 @@ export interface Terminal {
 
 export type ServiceClass = 'transport' | 'event' | 'attraction';
 export type ServiceStatus = 'active' | 'paused' | 'future';
-export type ScheduleMode = 'gtfs' | 'external';
+export type ScheduleMode = 'gtfs' | 'curated' | 'external';
 export type PurchaseRequirement = 'none' | 'optional' | 'recommended' | 'required';
 export type PaymentMethod =
   | 'clipper'
