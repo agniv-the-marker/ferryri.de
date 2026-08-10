@@ -118,7 +118,7 @@ export const SPECS = {
   bobLift: num('bob', 'lift px', 6, 0, 16, 0.25),
   bobScale: num('bob', 'size swell', 0.15, 0, 0.6, 0.01),
   bobRock: num('bob', 'rock °', 11, 0, 30, 0.5),
-  bobSway: num('bob', 'sway px', 3.3, 0, 8, 0.1),
+  bobSway: num('bob', 'sway px', 0.5, 0, 8, 0.1),
   bobDock: num('bob', 'docked ×', 0.15, 0, 1, 0.05),
 
   // ---- camera ----
