@@ -10,6 +10,7 @@ import { project, type WorldPt } from './proj';
 import type { Route, ScheduleData, Terminal } from '../lib/types';
 import type { VesselState } from '../sim/vessels';
 import { T } from '../lib/tunables';
+import { routeVisible } from '../lib/visibility';
 
 export type Pick =
   | { type: 'terminal'; terminal: Terminal }
@@ -110,9 +111,38 @@ const LABEL_MIN_ZOOM: Record<string, number> = {
 const fade = (z: number, from: number, width = 0.6) =>
   Math.max(0, Math.min(1, (z - from) / width));
 
+/** Turn sparse curated waypoints into a restrained Catmull–Rom/Bézier path. */
+function addSmoothPath(path: Path2D, raw: [number, number][]) {
+  let pts = raw.map(([lng, lat]) => project(lng, lat));
+  if (pts.length < 2) return;
+  const closed = pts.length > 2 && pts[0]!.x === pts.at(-1)!.x && pts[0]!.y === pts.at(-1)!.y;
+  if (closed) pts = pts.slice(0, -1);
+  path.moveTo(pts[0]!.x, pts[0]!.y);
+  const tension = 0.65 / 6;
+  const count = closed ? pts.length : pts.length - 1;
+  const at = (i: number) => closed
+    ? pts[(i + pts.length) % pts.length]!
+    : pts[Math.max(0, Math.min(pts.length - 1, i))]!;
+  for (let i = 0; i < count; i++) {
+    const p0 = at(i - 1);
+    const p1 = at(i);
+    const p2 = at(i + 1);
+    const p3 = at(i + 2);
+    path.bezierCurveTo(
+      p1.x + (p2.x - p0.x) * tension,
+      p1.y + (p2.y - p0.y) * tension,
+      p2.x - (p3.x - p1.x) * tension,
+      p2.y - (p3.y - p1.y) * tension,
+      p2.x,
+      p2.y,
+    );
+  }
+  if (closed) path.closePath();
+}
+
 export class Overlay {
   private ctx: CanvasRenderingContext2D;
-  private routePaths: { routeId: string; accent: string; path: Path2D }[];
+  private routePaths: { route: Route; path: Path2D }[];
   private places: {
     kind: 'city' | 'peak' | 'place';
     name: string;
@@ -124,6 +154,7 @@ export class Overlay {
   private terminals: TerminalPt[];
   private stations: TerminalPt[];
   private routeById: Map<string, Route>;
+  private stationRoutes = new Map<string, Route[]>();
   private dpr = Math.min(devicePixelRatio || 1, 2);
   private lastVessels: VesselState[] = [];
   /** Currently highlighted (selected) stop/vessel for subtle emphasis. */
@@ -142,10 +173,10 @@ export class Overlay {
       set.add(trip.shape);
     }
     this.routePaths = data.routes
-      .filter((r) => shapesByRoute.has(r.id))
+      .filter((r) => shapesByRoute.has(r.id) || r.displayPath)
       .map((r) => {
         const path = new Path2D();
-        for (const shapeId of shapesByRoute.get(r.id)!) {
+        for (const shapeId of shapesByRoute.get(r.id) ?? []) {
           const shape = data.shapes[shapeId];
           if (!shape) continue;
           shape.pts.forEach(([lng, lat], i) => {
@@ -154,7 +185,8 @@ export class Overlay {
             else path.lineTo(p.x, p.y);
           });
         }
-        return { routeId: r.id, accent: r.accent, path };
+        if (r.displayPath) addSmoothPath(path, r.displayPath);
+        return { route: r, path };
       });
     this.places = PLACES.map((p) => ({
       kind: p.kind,
@@ -167,6 +199,13 @@ export class Overlay {
       .map((t) => ({ ...t, world: project(t.lng, t.lat) }));
     this.stations = this.terminals.filter((t) => !t.parent);
     this.routeById = new Map(data.routes.map((r) => [r.id, r]));
+    for (const route of data.routes) {
+      for (const id of route.terminals) {
+        const list = this.stationRoutes.get(id) ?? [];
+        list.push(route);
+        this.stationRoutes.set(id, list);
+      }
+    }
   }
 
   resize(w: number, h: number) {
@@ -196,13 +235,18 @@ export class Overlay {
     ctx.lineCap = 'round';
     const baseAlpha = Math.min(1, T.routeAlpha * 2.2);
     for (const r of this.routePaths) {
+      if (!routeVisible(r.route)) continue;
       const spotlight = this.highlightRoute !== null;
-      const isLit = r.routeId === this.highlightRoute;
+      const isLit = r.route.id === this.highlightRoute;
       ctx.globalAlpha = spotlight ? (isLit ? 0.85 : baseAlpha * 0.25) : baseAlpha;
       ctx.lineWidth = (isLit ? 2.2 : 1.2) / s;
-      ctx.strokeStyle = r.accent;
+      ctx.strokeStyle = r.route.accent;
+      if (r.route.status !== 'active') ctx.setLineDash([4 / s, 5 / s]);
+      else if (r.route.serviceClass === 'attraction') ctx.setLineDash([7 / s, 4 / s]);
+      else ctx.setLineDash([]);
       ctx.stroke(r.path);
     }
+    ctx.setLineDash([]);
     ctx.restore();
     ctx.globalAlpha = 1;
 
@@ -216,12 +260,16 @@ export class Overlay {
     const gray = cssVar('--text-tertiary') || '#999';
     ctx.textAlign = 'center';
     const placed: { x: number; y: number; w: number }[] = [];
+    const visibleStationNames = new Set<string>();
     // terminal labels are drawn later but win — reserve their boxes first
     for (const t of this.stations) {
+      if (!this.terminalVisible(t)) continue;
+      visibleStationNames.add(t.short.trim().toLowerCase());
       const p = toScreen(t.world);
       placed.push({ x: p.x, y: p.y + 15, w: t.short.length * 7 * T.uiScale });
     }
     for (const pl of this.places) {
+      if (visibleStationNames.has(pl.name.trim().toLowerCase())) continue;
       // cities and landmarks give way once you're close in; peaks stay
       let a = fade(z, pl.min, 0.8);
       if (pl.kind !== 'peak') a *= 1 - fade(z, 15.2, 1);
@@ -248,7 +296,9 @@ export class Overlay {
     // ---- terminal markers ----
     ctx.font = `500 ${Math.round(10 * T.uiScale)}px 'JetBrains Mono Variable', monospace`;
     ctx.textAlign = 'center';
+    const terminalLabelBoxes: { x: number; y: number; w: number; h: number }[] = [];
     for (const t of this.stations) {
+      if (!this.terminalVisible(t)) continue;
       const p = toScreen(t.world);
       if (p.x < -60 || p.y < -40 || p.x > w + 60 || p.y > h + 40) continue;
       const selected =
@@ -267,8 +317,27 @@ export class Overlay {
       const minZ = LABEL_MIN_ZOOM[t.id];
       const thisLabelAlpha = minZ ? labelAlpha * fade(z, minZ) : labelAlpha;
       if (thisLabelAlpha > 0.02) {
-        ctx.globalAlpha = thisLabelAlpha;
-        this.label(ctx, t.short.toUpperCase(), p.x, p.y + 15, ink, bg);
+        const text = t.short.toUpperCase();
+        const tw = text.length * 6.2 * T.uiScale;
+        const th = 12 * T.uiScale;
+        const candidates = [
+          { x: p.x, y: p.y + 15 },
+          { x: p.x, y: p.y - 10 },
+          { x: p.x + tw / 2 + 10, y: p.y + 3 },
+          { x: p.x - tw / 2 - 10, y: p.y + 3 },
+        ];
+        const pos = candidates.find((candidate) =>
+          !terminalLabelBoxes.some(
+            (box) =>
+              Math.abs(box.x - candidate.x) < (box.w + tw) / 2 + 5 &&
+              Math.abs(box.y - candidate.y) < (box.h + th) / 2 + 3,
+          ),
+        );
+        if (pos) {
+          terminalLabelBoxes.push({ ...pos, w: tw, h: th });
+          ctx.globalAlpha = thisLabelAlpha;
+          this.label(ctx, text, pos.x, pos.y, ink, bg);
+        }
       }
       ctx.globalAlpha = 1;
     }
@@ -279,9 +348,10 @@ export class Overlay {
     // ---- vessels ----
     const size = T.vesselSize;
     for (const v of vessels) {
+      const route = this.routeById.get(v.routeId);
+      if (!route || !routeVisible(route)) continue;
       const p = toScreen(v.pos);
       if (p.x < -30 || p.y < -30 || p.x > w + 30 || p.y > h + 30) continue;
-      const route = this.routeById.get(v.routeId);
       const accent = route?.accent ?? '#666';
       // legend spotlight: ghost every other route's vessels
       ctx.globalAlpha =
@@ -338,6 +408,8 @@ export class Overlay {
     let bestD = Infinity;
 
     for (const v of this.lastVessels) {
+      const route = this.routeById.get(v.routeId);
+      if (!route || !routeVisible(route)) continue;
       const p = toScreen(v.pos);
       const d = Math.hypot(p.x - x, p.y - y);
       if (d < 18 && d < bestD) {
@@ -346,6 +418,7 @@ export class Overlay {
       }
     }
     for (const t of this.stations) {
+      if (!this.terminalVisible(t)) continue;
       const p = toScreen(t.world);
       const d = Math.hypot(p.x - x, p.y - y);
       // terminals get a generous 22px touch target; vessels win ties
@@ -355,5 +428,9 @@ export class Overlay {
       }
     }
     return best;
+  }
+
+  private terminalVisible(t: Terminal): boolean {
+    return (this.stationRoutes.get(t.id) ?? []).some(routeVisible);
   }
 }

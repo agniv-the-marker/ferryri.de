@@ -543,15 +543,19 @@ export class Renderer {
    */
   private setSwellUniforms(cam: Camera) {
     const gl = this.gl;
-    const fade = Math.max(
+    // Swell gives the regional water a slow rolling structure, but at dock
+    // zoom it reads as a harsh screen-space pattern. Keep it broad at lower
+    // zooms and smoothly lay it down as the camera approaches a terminal.
+    const zoomOut = Math.max(
       0,
       Math.min(1, (cam.cur.z - T.swellZoom) / 1.2),
     );
+    const fade = 1 - zoomOut * zoomOut * (3 - 2 * zoomOut);
     gl.uniform4f(
       this.u.uSwellB ?? null,
       T.swellAmp,
       T.swellSharp,
-      fade * fade * (3 - 2 * fade),
+      fade,
       this.crestMean(T.swellSharp),
     );
     gl.uniform1f(this.u.uSwellCalm ?? null, T.swellCalm);

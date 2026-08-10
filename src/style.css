@@ -178,7 +178,7 @@ body {
 }
 #about-card .about-credits {
   font-family: var(--mono);
-  font-size: 0.55rem;
+  font-size: 0.5rem;
   color: var(--text-tertiary);
   letter-spacing: 0.02em;
   margin: 0.9rem 0 0;
@@ -386,6 +386,11 @@ body {
   bottom: calc(0.5rem + var(--safe-bottom));
   z-index: 2;
   text-align: right;
+  transition: opacity 0.15s ease;
+}
+#sheet:not([data-state='closed']) ~ #legend {
+  opacity: 0;
+  pointer-events: none;
 }
 #legend-toggle {
   font-family: var(--mono);
@@ -429,6 +434,31 @@ body {
   color: var(--text-secondary);
   padding: 0.12rem 0;
 }
+#legend-list li[hidden] { display: none; }
+#legend-list .operator-heading {
+  justify-content: flex-start;
+  color: var(--text);
+  font-size: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  margin-top: 0.35rem;
+  padding-top: 0.3rem;
+  cursor: default;
+}
+#legend-list .operator-heading:first-child { margin-top: 0; }
+#legend-list .operator-toggle {
+  width: 100%;
+  border: 0;
+  background: none;
+  color: inherit;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+#legend-list .route-row { padding-left: 0.55rem; }
+#legend-list .route-row.singleton { padding-left: 0; color: var(--text-secondary); }
 #legend-list .swatch {
   width: 0.9rem;
   height: 3px;
@@ -485,9 +515,74 @@ body {
 .plan-row .to { color: var(--text-secondary); flex: 1; }
 .plan-row .via { color: var(--text-tertiary); font-size: 0.62rem; }
 .plan-row .g { color: var(--text-tertiary); font-size: 0.62rem; white-space: nowrap; }
+.plan-row .op {
+  color: var(--text-tertiary);
+  font-size: 0.56rem;
+  white-space: nowrap;
+}
+
+/* ---- operator / ticketing cards ---- */
+
+.service-cards { margin-top: 1rem; }
+.service-card {
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent, var(--border));
+  padding: 0.55rem 0.65rem;
+  margin-top: 0.6rem;
+  font-family: var(--mono);
+}
+.service-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.54rem;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.service-route { margin-top: 0.16rem; font-size: 0.68rem; color: var(--text-secondary); }
+.service-note { margin: 0.35rem 0 0; font-size: 0.58rem; line-height: 1.45; color: var(--text-tertiary); }
+.service-status { border: 1px solid var(--border); padding: 0 0.25rem; }
+.service-status.paused { color: #8b5b3f; }
+.service-links { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.55rem; }
+.service-link {
+  color: var(--text-secondary);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  padding: 0.25rem 0.45rem;
+  font-size: 0.55rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.service-link:hover { color: var(--text); border-color: var(--text-tertiary); }
+.service-link.primary { color: var(--text); border-color: var(--accent, var(--text-secondary)); }
+.operator-eyebrow {
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.15rem;
+}
 
 /* phone: drop the arrow and the word GATE — the columns speak for themselves */
 @media (max-width: 719px) {
+  html { font-size: 15.5px; }
+
+  #sheet .sheet-title {
+    touch-action: none;
+    cursor: grab;
+  }
+
+  .service-cards,
+  .service-card {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .service-links { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .service-link { width: 100%; text-align: center; overflow-wrap: anywhere; }
+
   #attribution {
     left: auto;
     right: 1rem;
@@ -516,7 +611,7 @@ body {
     line-height: 1.4;
     margin-bottom: 0.45rem;
   }
-  #about-card .about-credits { font-size: 0.5rem; }
+  #about-card .about-credits { font-size: 0.46rem; }
   .about-actions { margin-top: 0.7rem; }
 
   .plan-row .arrow,
@@ -554,10 +649,23 @@ body {
   max-width: 10rem;
 }
 
+.planner-actions {
+  flex-direction: column;
+  align-items: stretch;
+}
+.planner-actions button,
+.planner-actions .route-select {
+  width: 100%;
+  max-width: none;
+  min-height: 2rem;
+  text-align: center;
+  text-align-last: center;
+}
+.planner-actions .route-select[hidden] { display: none; }
+
 /* ---- desktop: board fills the right side, station name upper left ---- */
 
 @media (min-width: 720px) {
-  .route-select { display: none; }
   #sheet {
     left: auto;
     top: 0;
@@ -580,7 +688,7 @@ body {
   /* the station name lives on the map instead of inside the panel */
   #sheet .sheet-title { display: none; }
   #station-name:not([hidden]) { display: block; }
-  /* desktop: the key is always on; when the panel opens it rides its bottom */
+  /* desktop: the key is expanded whenever no detail panel is open */
   #legend { bottom: calc(1rem + var(--safe-bottom)); }
   #legend-toggle { display: none; }
   #legend-list {
@@ -590,14 +698,6 @@ body {
     pointer-events: auto;
     margin-top: 0.4rem;
   }
-  #sheet:not([data-state='closed']) ~ #legend {
-    z-index: 4;
-  }
-  #sheet:not([data-state='closed']) ~ #legend #legend-list {
-    background: var(--bg);
-  }
-  /* board content scrolls clear of the legend */
-  #sheet-body { padding-bottom: 10.5rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {

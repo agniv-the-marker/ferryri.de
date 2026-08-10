@@ -16,6 +16,39 @@ export interface Terminal {
   active: boolean;
 }
 
+export type ServiceClass = 'transport' | 'event' | 'attraction';
+export type ServiceStatus = 'active' | 'paused' | 'future';
+export type ScheduleMode = 'gtfs' | 'external';
+export type PurchaseRequirement = 'none' | 'optional' | 'recommended' | 'required';
+export type PaymentMethod =
+  | 'clipper'
+  | 'contactless'
+  | 'mobile-ticket'
+  | 'paper-ticket'
+  | 'cash'
+  | 'free';
+
+export interface Operator {
+  id: string;
+  name: string;
+  short: string;
+  kind: 'public' | 'private';
+  color: string;
+  website: string;
+  attribution?: string;
+}
+
+export interface Ticketing {
+  methods: PaymentMethod[];
+  purchase: PurchaseRequirement;
+  note: string;
+  purchaseUrl?: string;
+  scheduleUrl?: string;
+  fareUrl?: string;
+  /** ISO date on which manually curated details were last checked. */
+  verifiedAt?: string;
+}
+
 export interface Route {
   id: string;
   /** GTFS short name, e.g. "VJO" */
@@ -29,6 +62,15 @@ export interface Route {
   sort: number;
   /** direction_id → human name, e.g. ["North", "South"] */
   directions: [string, string];
+  operator: string;
+  serviceClass: ServiceClass;
+  status: ServiceStatus;
+  scheduleMode: ScheduleMode;
+  ticketing: Ticketing;
+  /** Canonical station ids served, used even when no timetable is available. */
+  terminals: string[];
+  /** Indicative [lng, lat] geometry for external-link-only services. */
+  displayPath?: [number, number][];
 }
 
 export interface Shape {
@@ -73,6 +115,7 @@ export interface ScheduleData {
   generated: string;
   /** Last date (YYYYMMDD) with any scheduled service */
   feedEnd: string;
+  operators: Operator[];
   terminals: Terminal[];
   routes: Route[];
   shapes: Record<string, Shape>;

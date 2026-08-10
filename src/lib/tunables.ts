@@ -68,7 +68,7 @@ export const SPECS = {
   swellScale: num('swell', 'wavelength ×', 1.5, 0.4, 2.5, 0.05),
   swellSharp: num('swell', 'crest sharpness', 2.2, 1, 5, 0.1),
   swellDir: num('swell', 'travel bearing°', 110, 0, 350, 5),
-  swellZoom: num('swell', 'fade-in z', 12.3, 10, 15, 0.1),
+  swellZoom: num('swell', 'fade-out z', 12.3, 10, 15, 0.1),
   swellCalm: num('swell', 'shore calming', 0, 0, 1, 0.05),
   shoreWaveAmp: num('swell', 'shore band amp', 0, 0, 0.8, 0.02),
   shoreWaveFreq: num('swell', 'shore band freq', 160, 5, 160, 1),

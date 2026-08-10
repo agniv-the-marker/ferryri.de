@@ -18,6 +18,7 @@ import { Chips } from './ui/chips';
 import { terminalBoard, vesselCard, type BoardCtx, type BoardHandle } from './ui/board';
 import type { ScheduleData, Terminal } from './lib/types';
 import { T, applyDomTunables } from './lib/tunables';
+import { initVisibility, onVisibilityChange, routeVisible } from './lib/visibility';
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -35,15 +36,19 @@ async function boot() {
   const [coast, topoMeta, schedule, topoImg] = await Promise.all([
     fetch(`${BASE}data/coast.json`).then((r) => r.json()),
     fetch(`${BASE}data/topo.json`).then((r) => r.json()),
-    fetch(`${BASE}data/schedule.json`).then((r) => r.json()) as Promise<ScheduleData>,
+    // Schema v2 adds operators/ticketing; query version avoids an incompatible
+    // stale v1 response from an already-installed offline cache.
+    fetch(`${BASE}data/schedule.json?v=2`).then((r) => r.json()) as Promise<ScheduleData>,
     loadImage(`${BASE}data/topo.png`),
   ]);
 
   const glCanvas = document.getElementById('map-gl') as HTMLCanvasElement;
   const app = document.getElementById('app')!;
+  initVisibility(schedule);
 
   // ---- camera fitted to the ferry system ----
-  const active = schedule.terminals.filter((t) => t.active && !t.parent);
+  const visibleStations = new Set(schedule.routes.filter(routeVisible).flatMap((r) => r.terminals));
+  const active = schedule.terminals.filter((t) => t.active && !t.parent && visibleStations.has(t.id));
   let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
   for (const t of active) {
     const p = project(t.lng, t.lat);
@@ -120,12 +125,14 @@ async function boot() {
 
   const terminalById = new Map(schedule.terminals.map((t) => [t.id, t]));
   const routeById = new Map(schedule.routes.map((r) => [r.id, r]));
+  const operatorById = new Map(schedule.operators.map((o) => [o.id, o]));
   const boardCtx = (): BoardCtx => ({
     data: schedule,
     timed,
     nowSec: currentSec,
     terminalById,
     routeById,
+    operatorById,
     filterRoute: overlay.highlightRoute,
   });
 
@@ -150,6 +157,11 @@ async function boot() {
     currentBoard?.refresh(boardCtx());
   };
 
+  onVisibilityChange(() => {
+    chips.invalidate();
+    currentBoard?.refresh(boardCtx());
+  });
+
   sheet.onClose = () => {
     overlay.selected = null;
     currentBoard = null;
@@ -159,6 +171,11 @@ async function boot() {
 
   function openTerminal(t: Terminal) {
     selectedVesselTrip = null;
+    // A route spotlight is useful within one terminal, but carrying it to a
+    // different station can make the new board appear empty or stale when
+    // that route does not serve the destination. Every station opens in its
+    // complete, unfiltered state.
+    if (overlay.highlightRoute) setRouteFilter(null);
     const p = project(t.lng, t.lat);
     const z = t.gate || t.id === '7201' ? 15.1 : 13.7;
     const desktop = matchMedia('(min-width: 720px)').matches;
@@ -296,7 +313,7 @@ async function boot() {
     }
   }
 
-  initDevPanel();
+  initDevPanel(schedule);
   initAbout();
   // the legend and the planner's dropdown are two faces of one filter
   syncLegend = initLegend(schedule, setRouteFilter);

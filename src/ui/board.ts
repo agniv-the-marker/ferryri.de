@@ -3,12 +3,13 @@
  * vessel card. Terminal boards are a single time-sorted list labeled by
  * destination — like the real board in the Ferry Building nave.
  */
-import type { Route, ScheduleData, Terminal } from '../lib/types';
+import type { Operator, Route, ScheduleData, Terminal } from '../lib/types';
 import type { TimedTrip } from '../sim/schedule';
 import { departuresFrom, tripsForDay } from '../sim/schedule';
 import type { VesselState } from '../sim/vessels';
 import { fmtClock, now as simNow } from '../lib/clock';
 import { FlapBoard } from './flap';
+import { routeVisible } from '../lib/visibility';
 
 const el = (tag: string, cls?: string, text?: string) => {
   const e = document.createElement(tag);
@@ -35,8 +36,61 @@ export interface BoardCtx {
   nowSec: number;
   terminalById: Map<string, Terminal>;
   routeById: Map<string, Route>;
+  operatorById: Map<string, Operator>;
   /** Route spotlighted in the legend — boards filter to it when set. */
   filterRoute?: string | null;
+}
+
+function routesAt(ctx: BoardCtx, terminal: Terminal, respectFilter = true): Route[] {
+  const station = terminal.parent ?? terminal.id;
+  return ctx.data.routes.filter(
+    (r) =>
+      routeVisible(r) &&
+      r.terminals.includes(station) &&
+      (!respectFilter || !ctx.filterRoute || r.id === ctx.filterRoute),
+  );
+}
+
+function externalLink(label: string, href: string, primary = false) {
+  const a = el('a', `service-link${primary ? ' primary' : ''}`, `${label} ↗`) as HTMLAnchorElement;
+  a.href = href;
+  a.target = '_blank';
+  a.rel = 'external noopener';
+  return a;
+}
+
+function serviceCard(ctx: BoardCtx, route: Route): HTMLElement {
+  const operator = ctx.operatorById.get(route.operator);
+  const card = el('section', 'service-card');
+  card.style.setProperty('--accent', route.accent);
+  const head = el('div', 'service-head');
+  head.append(el('span', 'service-operator', operator?.name ?? route.operator));
+  if (route.status !== 'active') head.append(el('span', `service-status ${route.status}`, route.status));
+  card.append(head);
+  card.append(el('div', 'service-route', route.name));
+  card.append(el('p', 'service-note', route.ticketing.note));
+  const links = el('div', 'service-links');
+  if (route.ticketing.purchaseUrl && route.ticketing.purchase !== 'none') {
+    links.append(externalLink('buy tickets', route.ticketing.purchaseUrl, true));
+  }
+  if (route.ticketing.scheduleUrl && route.ticketing.scheduleUrl !== route.ticketing.purchaseUrl) {
+    links.append(externalLink('schedule', route.ticketing.scheduleUrl));
+  }
+  if (route.ticketing.fareUrl) links.append(externalLink('fares & payment', route.ticketing.fareUrl));
+  if (links.childElementCount) card.append(links);
+  return card;
+}
+
+function renderServiceCards(ctx: BoardCtx, terminal: Terminal, wrap: HTMLElement) {
+  const routes = routesAt(ctx, terminal);
+  const seen = new Set<string>();
+  wrap.replaceChildren();
+  for (const route of routes) {
+    const key = `${route.operator}:${route.ticketing.note}:${route.ticketing.purchaseUrl ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    wrap.append(serviceCard(ctx, route));
+  }
 }
 
 /** Stop ids covered by a tap on this terminal (a station includes its gates). */
@@ -85,23 +139,13 @@ function plannerView(
 ): { el: HTMLElement; refresh(c: BoardCtx): void } {
   const root = el('div');
   const backBtn = el('button', undefined, '◂ next departures');
-  const actions = el('div', 'board-actions');
+  const actions = el('div', 'board-actions planner-actions');
   actions.append(backBtn);
 
   // route filter — the legend does this on desktop, but it's off-screen while
   // the all-departures list is open on a phone
   const routeSel = document.createElement('select');
   routeSel.className = 'route-select';
-  const anyOpt = document.createElement('option');
-  anyOpt.value = '';
-  anyOpt.textContent = 'all routes';
-  routeSel.append(anyOpt);
-  for (const r of ctx.data.routes) {
-    const o = document.createElement('option');
-    o.value = r.id;
-    o.textContent = r.name;
-    routeSel.append(o);
-  }
   routeSel.addEventListener('change', () =>
     onFilterRoute?.(routeSel.value || null),
   );
@@ -116,8 +160,25 @@ function plannerView(
 
   let activeTab = 0;
   let cur = ctx; // latest context, so filter/time changes re-render in place
+  const syncRouteSelect = () => {
+    const eligible = routesAt(cur, terminal, false).filter((r) => r.scheduleMode === 'gtfs');
+    routeSel.hidden = eligible.length <= 1;
+    routeSel.replaceChildren();
+    if (eligible.length <= 1) return;
+    const anyOpt = document.createElement('option');
+    anyOpt.value = '';
+    anyOpt.textContent = 'all routes';
+    routeSel.append(anyOpt);
+    for (const route of eligible) {
+      const option = document.createElement('option');
+      option.value = route.id;
+      option.textContent = route.name;
+      routeSel.append(option);
+    }
+  };
   const render = (tabIdx: number) => {
     activeTab = tabIdx;
+    syncRouteSelect();
     routeSel.value = cur.filterRoute ?? '';
     [...tabs.children].forEach((b, i) =>
       (b as HTMLElement).classList.toggle('active', i === tabIdx),
@@ -135,6 +196,7 @@ function plannerView(
       }
     }
     let deps = departuresFrom(timed, stopFamily(cur, terminal), 0, 500);
+    deps = deps.filter((d) => routeVisible(cur.routeById.get(d.routeId)!));
     if (cur.filterRoute) deps = deps.filter((d) => d.routeId === cur.filterRoute);
     const routeName = cur.filterRoute ? cur.routeById.get(cur.filterRoute)?.name : null;
     listWrap.replaceChildren();
@@ -168,6 +230,8 @@ function plannerView(
         to.append(via);
       }
       row.append(to);
+      const operator = route && cur.operatorById.get(route.operator);
+      row.append(el('span', 'op', operator?.short ?? ''));
       const gate = cur.terminalById.get(d.stop)?.gate;
       const g = el('span', 'g');
       if (gate) g.append(el('span', 'g-word', 'GATE '), gate);
@@ -207,16 +271,22 @@ export function terminalBoard(
   root.append(el('h1', 'sheet-title', title));
   const sub = el('div', 'sheet-sub');
 
+  const initialRoutes = routesAt(ctx, terminal);
+  const initialOperators = new Set(initialRoutes.map((r) => r.operator));
+  const showOperatorColumn = initialOperators.size > 1;
+
   // destination | departs | (gate at the Ferry Building)
   const columns = isFB && !isGate
     ? [
         { width: 13, align: 'left' as const },
         { width: 6, align: 'right' as const },
+        ...(showOperatorColumn ? [{ width: 5, align: 'left' as const }] : []),
         { width: 1, align: 'right' as const },
       ]
     : [
         { width: 13, align: 'left' as const },
         { width: 6, align: 'right' as const },
+        ...(showOperatorColumn ? [{ width: 5, align: 'left' as const }] : []),
       ];
   // two swappable views: the flap board, and the full-day planner
   const mainView = el('div');
@@ -233,6 +303,10 @@ export function terminalBoard(
   const allBtn = el('button', undefined, 'all departures ▸');
   actions.append(allBtn);
   mainView.append(actions);
+
+  const services = el('div', 'service-cards');
+  mainView.append(services);
+  renderServiceCards(ctx, terminal, services);
 
   let latestCtx = ctx;
   // non-null while the all-departures list is showing instead of the board
@@ -264,25 +338,33 @@ export function terminalBoard(
         planner.refresh(c);
         return;
       }
-      let deps = departuresFrom(c.timed, stopFamily(c, terminal), c.nowSec, 200);
+      let deps = departuresFrom(c.timed, stopFamily(c, terminal), c.nowSec, 200)
+        .filter((d) => routeVisible(c.routeById.get(d.routeId)!));
       if (c.filterRoute) deps = deps.filter((d) => d.routeId === c.filterRoute);
       deps = deps.slice(0, ROWS);
       const routeName = c.filterRoute ? c.routeById.get(c.filterRoute)?.name : null;
+      const visibleRoutes = routesAt(c, terminal);
+      const operators = new Set(visibleRoutes.map((r) => r.operator));
+      const soleOperator = operators.size === 1 ? c.operatorById.get([...operators][0]!)?.short : null;
       sub.textContent = routeName
         ? `${routeName} · ${fmtClock(c.nowSec)}`
-        : `next departures · ${fmtClock(c.nowSec)}`;
+        : `${soleOperator ? `${soleOperator} · ` : ''}next departures · ${fmtClock(c.nowSec)}`;
       board.update(
         deps.map((d) => {
           const route = c.routeById.get(d.routeId);
           const gate = c.terminalById.get(d.stop)?.gate ?? '';
           const cols = [destLabel(c, d.destStop), flapTime(d.dep)];
+          if (showOperatorColumn) cols.push(route ? c.operatorById.get(route.operator)?.short ?? '' : '');
           if (isFB && !isGate) cols.push(gate);
           return { cols, accent: route?.accent };
         }),
       );
       note.textContent = deps.length
         ? `first departs ${countdown(deps[0]!.dep, c.nowSec)}`
-        : 'no more departures today';
+        : visibleRoutes.some((r) => r.scheduleMode === 'external')
+          ? 'see the official schedule below'
+          : 'no more departures today';
+      renderServiceCards(c, terminal, services);
     },
   };
   handle.refresh(ctx);
@@ -292,12 +374,15 @@ export function terminalBoard(
 export function vesselCard(ctx: BoardCtx, v: VesselState): BoardHandle {
   const root = el('div');
   const route = ctx.routeById.get(v.routeId);
+  const operator = route ? ctx.operatorById.get(route.operator) : undefined;
+  root.append(el('div', 'operator-eyebrow', operator?.name ?? 'Ferry service'));
   root.append(el('h1', 'sheet-title', route?.name ?? 'Ferry'));
   const sub = el('div', 'sheet-sub');
   root.append(sub);
   const group = el('div', 'dep-group');
   group.style.setProperty('--accent', route?.accent ?? 'var(--text)');
   root.append(group);
+  if (route) root.append(serviceCard(ctx, route));
 
   const handle: BoardHandle = {
     el: root,

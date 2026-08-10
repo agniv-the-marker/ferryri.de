@@ -11,6 +11,7 @@ import { departuresFrom } from '../sim/schedule';
 import { fmtClock } from '../lib/clock';
 import { T } from '../lib/tunables';
 import { stopFamily, type BoardCtx } from './board';
+import { routeVisible } from '../lib/visibility';
 
 interface ChipNode {
   el: HTMLElement;
@@ -45,11 +46,16 @@ export class Chips {
   /** Rebuild chip texts (called when the minute changes). */
   private refreshTexts() {
     const ctx = this.ctx();
-    this.terminals = ctx.data.terminals.filter((t) => t.active);
+    const visibleStations = new Set(
+      ctx.data.routes.filter(routeVisible).flatMap((r) => r.terminals),
+    );
+    this.terminals = ctx.data.terminals.filter(
+      (t) => t.active && visibleStations.has(t.parent ?? t.id),
+    );
     for (const t of this.terminals) {
       const n = this.ensure(t);
       const deps = departuresFrom(ctx.timed, stopFamily(ctx, t), ctx.nowSec, 1);
-      const d = deps[0];
+      const d = deps.find((candidate) => routeVisible(ctx.routeById.get(candidate.routeId)!));
       if (!d) {
         n.text = '';
         n.el.innerHTML = '';
@@ -71,6 +77,10 @@ export class Chips {
         n.w = 14 + text.length * 6.4;
       }
     }
+  }
+
+  invalidate() {
+    this.lastMinute = -1;
   }
 
   update(cam: Camera) {

@@ -3,7 +3,7 @@
  * The whole site is static, and vessel positions are simulated from the
  * schedule — so once visited, everything works with no signal mid-bay.
  */
-const CACHE = 'ferryride-v1';
+const CACHE = 'ferryride-v2';
 
 self.addEventListener('install', (e) => {
   const siteRoot = new URL('./', self.location.href).href;

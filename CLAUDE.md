@@ -1,15 +1,17 @@
 # ferryri.de — sf ferry rides
 
-Live map of the San Francisco Bay Ferry system. Vessels are **simulated from
-the official GTFS timetable + wall clock** — no realtime data. Paper-and-ink
+Live map of scheduled Bay Area ferry services. Vessels are **simulated from
+official SF Bay Ferry and Golden Gate Ferry GTFS timetables + wall clock**;
+operators without reliable GTFS appear with official schedule/ticket links.
+Paper-and-ink
 aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
 
 ## Commands
 
 - `npm run dev` — Vite dev server
 - `npm run build` — typecheck + production build to `dist/`
-- `npm run data` — refresh `public/data/schedule.json` from the official GTFS
-  (https://gtfs.sanfranciscobayferry.com/gtfs.zip, ODC-BY). CI runs this weekly.
+- `npm run data` — refresh `public/data/schedule.json` from the official SF Bay
+  Ferry and Golden Gate feeds and merge the curated external-service catalog.
 - `npm run geo` — one-time rebuild of `public/data/coast.json` (MTC/TIGER
   shoreline) and `topo.png` (terrarium hillshade). Outputs are committed.
 
@@ -24,7 +26,8 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
 
 ## Architecture
 
-- `scripts/build-data.ts` — GTFS → compact schedule.json. Ferry Building is
+- `scripts/build-data.ts` — multi-feed GTFS + external-service catalog → compact
+  schedule.json. Ferry Building is
   parent stop `7201`; gates are child stops (72011=E, 72012=G, 72013=F) so
   departures know their gate natively.
 - `src/map/renderer.ts` — WebGL2: Bayer-dithered water w/ zoom-settled fractal

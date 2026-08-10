@@ -4,6 +4,13 @@
  * "copy" puts the current values on the clipboard as JSON for hand-off.
  */
 import { SPECS, T, setTunable, exportTunables, type TunableKey } from '../lib/tunables';
+import type { ScheduleData, ServiceClass, ServiceStatus } from '../lib/types';
+import {
+  setClassVisible,
+  setOperatorVisible,
+  setStatusVisible,
+  visibilitySnapshot,
+} from '../lib/visibility';
 
 const PANEL_CSS = `
 #dev-panel {
@@ -20,6 +27,7 @@ const PANEL_CSS = `
 #dev-panel .row label { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #dev-panel input[type=range] { width: 100%; accent-color: #666; height: 0.9rem; }
 #dev-panel input[type=color] { width: 100%; height: 1.1rem; border: 1px solid var(--border); background: none; padding: 0; }
+#dev-panel input[type=checkbox] { accent-color: #666; justify-self: start; }
 #dev-panel .val { text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
 #dev-panel .actions { display: flex; gap: 0.4rem; margin-top: 0.8rem; }
 #dev-panel button {
@@ -32,6 +40,7 @@ const PANEL_CSS = `
 
 let open = false;
 let panel: HTMLElement | null = null;
+let schedule: ScheduleData | null = null;
 
 export function toggleDevPanel() {
   open = !open;
@@ -39,7 +48,8 @@ export function toggleDevPanel() {
   if (panel) panel.style.display = open ? '' : 'none';
 }
 
-export function initDevPanel() {
+export function initDevPanel(data: ScheduleData) {
+  schedule = data;
   if (new URLSearchParams(location.search).has('dev')) toggleDevPanel();
 }
 
@@ -94,12 +104,52 @@ function build(): HTMLElement {
     g.append(row);
   }
 
+  if (schedule) {
+    const snapshot = visibilitySnapshot();
+    const addChecks = (
+      title: string,
+      values: [string, string, boolean][],
+      set: (id: string, checked: boolean) => void,
+    ) => {
+      const h = document.createElement('h2');
+      h.textContent = title;
+      panel.append(h);
+      for (const [id, name, checked] of values) {
+        const row = document.createElement('div');
+        row.className = 'row';
+        const label = document.createElement('label');
+        label.textContent = name;
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.checked = checked;
+        input.addEventListener('change', () => set(id, input.checked));
+        row.append(label, input, document.createElement('span'));
+        panel.append(row);
+      }
+    };
+    addChecks(
+      'service classes',
+      (Object.entries(snapshot.classes) as [ServiceClass, boolean][]).map(([id, value]) => [id, id, value]),
+      (id, value) => setClassVisible(id as ServiceClass, value),
+    );
+    addChecks(
+      'service status',
+      (Object.entries(snapshot.statuses) as [ServiceStatus, boolean][]).map(([id, value]) => [id, id, value]),
+      (id, value) => setStatusVisible(id as ServiceStatus, value),
+    );
+    addChecks(
+      'operators',
+      schedule.operators.map((operator) => [operator.id, operator.short, snapshot.operators[operator.id] !== false]),
+      setOperatorVisible,
+    );
+  }
+
   const actions = document.createElement('div');
   actions.className = 'actions';
   const copy = document.createElement('button');
   copy.textContent = 'copy';
   copy.addEventListener('click', async () => {
-    const json = exportTunables();
+    const json = JSON.stringify({ tunables: JSON.parse(exportTunables()), visibility: visibilitySnapshot() }, null, 2);
     console.log('[tunables]', json);
     try {
       await navigator.clipboard.writeText(json);

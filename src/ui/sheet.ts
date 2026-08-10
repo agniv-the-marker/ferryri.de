@@ -1,7 +1,8 @@
 /**
  * Bottom sheet (mobile) / side card (desktop ≥720px). On mobile the sheet
  * glides between half and full with the same damped easing as the camera;
- * dragging the grip moves it directly, release snaps by position + velocity.
+ * dragging the grip or station title moves it directly; release snaps by
+ * position + velocity.
  */
 
 type SheetState = 'closed' | 'half' | 'full';
@@ -10,7 +11,6 @@ const HALF = 0.52; // translateY fraction when half-open
 
 export class Sheet {
   private el = document.getElementById('sheet')!;
-  private grip = document.getElementById('sheet-grip')!;
   private body = document.getElementById('sheet-body')!;
   private state: SheetState = 'closed';
   /** current/target translateY as fraction of sheet height (0 = full open) */
@@ -28,17 +28,19 @@ export class Sheet {
     let lastT = 0;
     let vel = 0;
 
-    this.grip.addEventListener('pointerdown', (e) => {
+    this.el.addEventListener('pointerdown', (e) => {
       if (this.desktop.matches) return;
+      const target = e.target as Element;
+      if (!target.closest('#sheet-grip, .sheet-title')) return;
       this.dragging = true;
-      this.grip.setPointerCapture(e.pointerId);
+      this.el.setPointerCapture(e.pointerId);
       startY = e.clientY;
       startFrac = this.y;
       lastY = e.clientY;
       lastT = performance.now();
       vel = 0;
     });
-    this.grip.addEventListener('pointermove', (e) => {
+    this.el.addEventListener('pointermove', (e) => {
       if (!this.dragging) return;
       const h = this.el.clientHeight;
       const now = performance.now();
@@ -56,8 +58,8 @@ export class Sheet {
       if (proj > 0.8) this.close();
       else this.setState(proj > HALF / 2 ? 'half' : 'full');
     };
-    this.grip.addEventListener('pointerup', release);
-    this.grip.addEventListener('pointercancel', release);
+    this.el.addEventListener('pointerup', release);
+    this.el.addEventListener('pointercancel', release);
   }
 
   get isOpen() {
