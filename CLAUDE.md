@@ -25,6 +25,14 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
 - `?sel=<stopId>` — open a terminal board on load (Ferry Building = 7201)
 - `?wt=<sec>` — freeze water animation at a fixed time
 - `?ripple` / `?ripplekick` — automatic ripples for tuning / headless testing
+- `?music` / `?music=0` — force the generative score on or off (off by default;
+  the footer's "music" button is the real control). `?musickick` renders a fixed
+  handful of notes through an OfflineAudioContext and reports peak/RMS/note
+  counts in the tab title; `?wavekick` taps the bay and hand-steps the ripple
+  sim, reporting how many hulls answered the wavefront — both exist because a
+  speaker feature is otherwise unassertable headlessly.
+- `?tune=musicRippleGate:0.02,bobLift:8` — pin any tunable at boot, so a
+  headless run can hold values the dev panel would otherwise have to be clicked.
 - `?bob=0` — stop boats riding the water (on by default). Same switch as the
   dev panel's "bob" group; the rest of that group tunes it. "hull length m" is
   the load-bearing one — it sets both which waves a boat answers and the
@@ -46,6 +54,15 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
   along GTFS shapes via `shape_dist_traveled`.
 - `src/ui/` — split-flap boards (flap.ts), bottom sheet / desktop right panel,
   on-map departure chips, legend (click = spotlight route), dev panel.
+- `src/audio/` — the bay as a generative score, off until the footer's "music"
+  button is pressed (browsers require the gesture). No samples and no library:
+  every voice is a sine whose identity is its envelope, rung out through a
+  procedurally generated 6 s reverb into a bus compressor and limiter. Vessels
+  underway sound on their own periods, a terminal tap plays its next departures
+  as a phrase, and the ripple field triggers a hull as the wavefront reaches it
+  (`renderer.rippleSampler()` — ripple only, since the swell would trip any
+  threshold constantly). After Train Jazz and LA Metro: Ambient, credited in
+  the about panel.
 - `src/lib/tunables.ts` — every tweakable constant; the dev panel binds to it.
   When the user hands back exported JSON, update the defaults here.
 
