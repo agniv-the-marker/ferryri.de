@@ -8,17 +8,18 @@ import { Overlay } from './map/overlay';
 import { project } from './map/proj';
 import { attachGestures } from './map/gestures';
 import { now as simNow, localTime } from './lib/clock';
-import { tripsForDay, type TimedTrip } from './sim/schedule';
+import { departuresFrom, tripsForDay, type TimedTrip } from './sim/schedule';
 import { vesselsAt } from './sim/vessels';
 import { initDevPanel } from './ui/devPanel';
 import { initAbout } from './ui/about';
 import { initLegend } from './ui/legend';
 import { Sheet } from './ui/sheet';
 import { Chips } from './ui/chips';
-import { terminalBoard, vesselCard, type BoardCtx, type BoardHandle } from './ui/board';
+import { stopFamily, terminalBoard, vesselCard, type BoardCtx, type BoardHandle } from './ui/board';
 import type { ScheduleData, Terminal } from './lib/types';
-import { T, applyDomTunables, setTunable } from './lib/tunables';
+import { SPECS, T, applyDomTunables, onTune, setTunable, type TunableKey } from './lib/tunables';
 import { initVisibility, onVisibilityChange, routeVisible } from './lib/visibility';
+import { Music, musicKick } from './audio/music';
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -33,6 +34,21 @@ async function loadImage(url: string): Promise<HTMLImageElement> {
 
 async function boot() {
   applyDomTunables();
+  // dev: ?tune=musicRippleSeq:0,bobLift:8 — pin any tunable at boot, so a
+  // headless run can hold values the dev panel would otherwise have to be
+  // clicked to reach.
+  const tuneParam = new URLSearchParams(location.search).get('tune');
+  if (tuneParam) {
+    for (const pair of tuneParam.split(',')) {
+      const [key, raw] = pair.split(':');
+      if (!key || raw === undefined || !(key in SPECS)) continue;
+      const spec = SPECS[key as TunableKey];
+      setTunable(
+        key as TunableKey,
+        spec.kind === 'num' ? Number(raw) : spec.kind === 'bool' ? raw !== '0' : raw,
+      );
+    }
+  }
   const [coast, topoMeta, schedule, topoImg] = await Promise.all([
     fetch(`${BASE}data/coast.json`).then((r) => r.json()),
     fetch(`${BASE}data/topo.json`).then((r) => r.json()),
@@ -115,6 +131,32 @@ async function boot() {
   const wtFrozen = Number.isFinite(wtParam) && wtParam > 0;
   if (wtFrozen) waterTime = wtParam;
 
+  // ---- music: the bay as a score, off until asked for ----
+  const music = new Music(schedule);
+  const musicBtn = document.getElementById('music-link') as HTMLButtonElement;
+  // The tunable is the switch; the button and the dev panel's checkbox are two
+  // handles on it. Tunable listeners run synchronously, so audio still starts
+  // inside the click's own call stack — which is the gesture browsers require.
+  musicBtn.addEventListener('click', () => setTunable('musicOn', !music.enabled));
+  onTune(() => {
+    if (T.musicOn === music.enabled) return;
+    musicBtn.setAttribute('aria-pressed', String(T.musicOn));
+    void music.setEnabled(T.musicOn);
+  });
+  const musicParam = new URLSearchParams(location.search).get('music');
+  // A choice left on last visit can't resume itself — browsers need a gesture,
+  // so it arms here and starts on whatever the visitor touches first.
+  const wantMusic = musicParam !== null ? musicParam !== '0' : Music.remembered();
+  if (wantMusic) {
+    setTunable('musicOn', true);
+    musicBtn.setAttribute('aria-pressed', 'true');
+    const arm = () => {
+      removeEventListener('pointerdown', arm);
+      if (T.musicOn) void music.setEnabled(true);
+    };
+    addEventListener('pointerdown', arm, { once: true });
+  }
+
   // dev: ?bob turns on boat bobbing (off by default; also a dev-panel switch)
   const bobParam = new URLSearchParams(location.search).get('bob');
   if (bobParam !== null) setTunable('bobEnable', bobParam !== '0');
@@ -194,6 +236,13 @@ async function boot() {
       setRouteFilter,
     );
     sheet.open(currentBoard.el, 'half');
+    // the board and the phrase are the same information, read two ways
+    const ctx = boardCtx();
+    music.terminalPhrase(
+      departuresFrom(timed, stopFamily(ctx, t), currentSec, 6),
+      currentSec,
+      schedule.routes.filter((r) => r.terminals.includes(t.id) && routeVisible(r)).map((r) => r.id),
+    );
     setStationName(
       t.gate ? `Gate ${t.gate}` : t.name.replace(/ (Ferry Terminal|Water Shuttle Dock|Ferry Dock)$/, ''),
     );
@@ -220,6 +269,14 @@ async function boot() {
       lastVesselList,
       reducedMotion.matches ? null : renderer.waterSampler(camera, waterTime),
     );
+    music.frame({
+      vessels: lastVesselList,
+      cam: camera,
+      ripple: renderer.rippleSampler(camera),
+      water: overlay.waterMotion,
+      nowSec: currentSec,
+      spotlight: overlay.highlightRoute,
+    });
     chips.update(camera);
 
     // minute tick: refresh open board / vessel card
@@ -243,6 +300,7 @@ async function boot() {
   let raf = requestAnimationFrame(frame);
 
   document.addEventListener('visibilitychange', () => {
+    void music.setAwake(!document.hidden);
     if (document.hidden) cancelAnimationFrame(raf);
     else {
       last = performance.now();
@@ -265,10 +323,14 @@ async function boot() {
       });
       currentBoard = vesselCard(boardCtx(), v);
       sheet.open(currentBoard.el, 'half');
+      music.vesselRun(v, currentSec);
       setStationName(routeById.get(v.routeId)?.name ?? 'Ferry');
     } else {
       // empty map: ripple on water, close whatever is open
-      if (!renderer.isLand(x, y)) renderer.addRipple(x, y);
+      if (!renderer.isLand(x, y)) {
+        renderer.addRipple(x, y);
+        music.tapped();
+      }
       sheet.close();
     }
   });
@@ -305,6 +367,44 @@ async function boot() {
       const after = renderer.debugWavePeak();
       document.title = `settled=${settled.toFixed(3)} zoomed=${zoomed.toFixed(3)} after=${after.toFixed(3)}`;
     }, 400);
+  }
+
+  // dev: ?musickick renders a fixed handful of notes offline and reports what
+  // came out in the tab title — a speaker-free way to assert the mix works
+  if (new URLSearchParams(location.search).has('musickick')) {
+    void musicKick(schedule).then((r) => {
+      document.title =
+        `peak=${r.peak.toFixed(3)} rms=${r.rms.toFixed(4)} ` +
+        `bed=${r.bed} bell=${r.bell} hull=${r.hull}`;
+    });
+  }
+
+  // dev: ?wavekick taps the middle of the bay and steps the ripple sim by hand,
+  // feeding each step to the music the way a frame would. The sim advances once
+  // per draw, so on a slow headless GPU a wavefront never travels far enough to
+  // reach a boat in real time — this makes the coupling assertable anyway.
+  if (new URLSearchParams(location.search).has('wavekick')) {
+    void (async () => {
+      setTunable('musicOn', true);
+      await music.setEnabled(true);
+      const { w, h } = camera.viewport;
+      renderer.addRipple(w / 2, h / 2);
+      for (let i = 0; i < 240; i++) {
+        renderer.draw(camera, waterTime, true);
+        renderer.probeNow();
+        music.frame({
+          vessels: lastVesselList,
+          cam: camera,
+          ripple: renderer.rippleSampler(camera),
+          water: overlay.waterMotion,
+          nowSec: currentSec,
+          spotlight: overlay.highlightRoute,
+        });
+      }
+      document.title =
+        `hulls=${music.debugWaveNotes} peak=${music.debugWavePeak.toFixed(3)} ` +
+        `boats=${lastVesselList.length}`;
+    })();
   }
 
   // dev: ?ripple drops a ripple at the viewport center every 1.8s (for tuning)

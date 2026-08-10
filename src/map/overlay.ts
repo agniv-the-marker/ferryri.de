@@ -118,7 +118,7 @@ const LABEL_MIN_ZOOM: Record<string, number> = {
 const slopeUnit = (dh: number) => Math.max(-1, Math.min(1, dh * 4));
 
 /** What the water was doing under a hull last frame, so it can lag. */
-interface BobState {
+export interface BobState {
   h: number;
   gx: number;
   gy: number;
@@ -226,6 +226,15 @@ export class Overlay {
         this.stationRoutes.set(id, list);
       }
     }
+  }
+
+  /**
+   * What the water is doing under each hull right now, keyed by trip id.
+   * The music pans and detunes a boat's voice from this rather than sampling
+   * the field a second time.
+   */
+  get waterMotion(): ReadonlyMap<string, BobState> {
+    return this.bobState;
   }
 
   resize(w: number, h: number) {

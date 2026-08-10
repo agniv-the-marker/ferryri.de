@@ -603,10 +603,7 @@ export class Renderer {
   waterSampler(cam: Camera, timeSec: number): ((x: number, y: number) => number) | null {
     if (!T.bobEnable) return null;
     const { w, h } = cam.viewport;
-    const px = this.probeFresh ? this.probePixels : null;
-    const simW = this.simW;
-    const simH = this.simH;
-    const rippleGain = 2 * T.rippleAmp;
+    const ripple = this.rippleReader(w, h);
 
     // Note what is *not* here: T.swellAmp. That is how deeply the swell
     // modulates the dither — a shading depth, not a sea state — and letting it
@@ -618,30 +615,9 @@ export class Renderer {
     const wave = this.swellBuf;
     const amps = this.swellBobAmps;
     const perPx = 1 / cam.scale;
-    // hoisted out of the sampler: it runs a handful of times per vessel per
-    // frame, and this way the closures are built once instead of per call
-    const at = (ix: number, iy: number) => px![(iy * simW + ix) * 4]! / 255 - 0.5;
 
     return (x: number, y: number) => {
-      let hgt = 0;
-      if (px) {
-        // sim uv: x runs with the screen, y is flipped (readPixels row 0 is
-        // the bottom of the viewport). Bilinear so a hull glides over the
-        // 3-css-pixel grid instead of stepping across it.
-        const fx = (x / w) * simW - 0.5;
-        const fy = (1 - y / h) * simH - 0.5;
-        const x0 = Math.floor(fx);
-        const y0 = Math.floor(fy);
-        const tx = fx - x0;
-        const ty = fy - y0;
-        const cx0 = x0 < 0 ? 0 : x0 > simW - 1 ? simW - 1 : x0;
-        const cy0 = y0 < 0 ? 0 : y0 > simH - 1 ? simH - 1 : y0;
-        const cx1 = x0 + 1 < 0 ? 0 : x0 + 1 > simW - 1 ? simW - 1 : x0 + 1;
-        const cy1 = y0 + 1 < 0 ? 0 : y0 + 1 > simH - 1 ? simH - 1 : y0 + 1;
-        const top = at(cx0, cy0) + (at(cx1, cy0) - at(cx0, cy0)) * tx;
-        const bot = at(cx0, cy1) + (at(cx1, cy1) - at(cx0, cy1)) * tx;
-        hgt += (top + (bot - top) * ty) * rippleGain;
-      }
+      let hgt = ripple ? ripple(x, y) : 0;
       if (swellGain > 0) {
         // camera-relative, exactly like the shader — the phase for the camera
         // centre is already folded into wave[i * 4 + 3]
@@ -659,6 +635,50 @@ export class Renderer {
         hgt += sw * swellGain;
       }
       return hgt;
+    };
+  }
+
+  /**
+   * The tap-ripple field on its own, with no swell mixed in. The music reads
+   * this rather than `waterSampler`: a hull is supposed to sound when a wave
+   * you started reaches it, and the swell would trip any threshold constantly.
+   */
+  rippleSampler(cam: Camera): ((x: number, y: number) => number) | null {
+    const { w, h } = cam.viewport;
+    return this.rippleReader(w, h);
+  }
+
+  /**
+   * Bilinear read of the readback buffer, in the shader's own units, so a
+   * bigger visual ripple moves a hull further. Null until a readback lands.
+   */
+  private rippleReader(w: number, h: number): ((x: number, y: number) => number) | null {
+    const px = this.probeFresh ? this.probePixels : null;
+    if (!px) return null;
+    const simW = this.simW;
+    const simH = this.simH;
+    const gain = 2 * T.rippleAmp;
+    // hoisted: this runs a handful of times per vessel per frame, so the
+    // closures are built once rather than per call
+    const at = (ix: number, iy: number) => px[(iy * simW + ix) * 4]! / 255 - 0.5;
+
+    return (x: number, y: number) => {
+      // sim uv: x runs with the screen, y is flipped (readPixels row 0 is the
+      // bottom of the viewport). Bilinear so a hull glides over the
+      // 3-css-pixel grid instead of stepping across it.
+      const fx = (x / w) * simW - 0.5;
+      const fy = (1 - y / h) * simH - 0.5;
+      const x0 = Math.floor(fx);
+      const y0 = Math.floor(fy);
+      const tx = fx - x0;
+      const ty = fy - y0;
+      const cx0 = x0 < 0 ? 0 : x0 > simW - 1 ? simW - 1 : x0;
+      const cy0 = y0 < 0 ? 0 : y0 > simH - 1 ? simH - 1 : y0;
+      const cx1 = x0 + 1 < 0 ? 0 : x0 + 1 > simW - 1 ? simW - 1 : x0 + 1;
+      const cy1 = y0 + 1 < 0 ? 0 : y0 + 1 > simH - 1 ? simH - 1 : y0 + 1;
+      const top = at(cx0, cy0) + (at(cx1, cy0) - at(cx0, cy0)) * tx;
+      const bot = at(cx0, cy1) + (at(cx1, cy1) - at(cx0, cy1)) * tx;
+      return (top + (bot - top) * ty) * gain;
     };
   }
 
@@ -832,8 +852,10 @@ export class Renderer {
     const gl = this.gl;
     this.updateMask(cam);
     if (animate) this.stepRipples(cam);
-    // a still field can't rock anything, so don't pay for the readback
-    if (animate && T.bobEnable) this.pumpProbe();
+    // a still field can't rock anything, so don't pay for the readback — but
+    // both the bob and the music's ripple-triggered hulls read it
+    const wantsField = T.bobEnable || (T.musicOn && T.musicRippleSeq > 0);
+    if (animate && wantsField) this.pumpProbe();
 
     // Settle the water-noise level only while the camera isn't zooming, so
     // zooming scales the pattern with the map instead of boiling it.
