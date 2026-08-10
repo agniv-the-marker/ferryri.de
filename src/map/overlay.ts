@@ -66,8 +66,7 @@ const PLACES: {
   { kind: 'city', name: 'Sonoma', lng: -122.4569, lat: 38.2919, min: 11.2 },
 
   // --- islands and landmarks ---
-  // Offset north of Southeast Farallon so the label sits above the islands.
-  { kind: 'place', name: 'Farallon Islands', lng: -123.002, lat: 37.718, min: 9.8 },
+  { kind: 'place', name: 'Farallon Islands', lng: -123.002, lat: 37.699, min: 9.8 },
   { kind: 'place', name: 'Alcatraz', lng: -122.4229, lat: 37.8267, min: 11.6 },
   { kind: 'place', name: 'Angel Island', lng: -122.4326, lat: 37.8609, min: 11.4 },
   { kind: 'place', name: 'Treasure Island', lng: -122.3705, lat: 37.8235, min: 11.8 },
