@@ -122,18 +122,24 @@ export const SPECS = {
   bobDock: num('bob', 'docked ×', 0.15, 0, 1, 0.05),
 
   // ---- music (the bay as a generative score) ----
-  // Voices are sine oscillators told apart by their envelopes alone, rung out
-  // through a long reverb. Off by default and never autoplaying: the footer
-  // button is the gesture the browser requires. `?music` / `?music=0` forces it.
+  // Voices are paired oscillators a few cents apart, so every note beats
+  // against itself the way an aulos's two pipes do, rung out through a long
+  // reverb. Off by default and never autoplaying: the footer button is the
+  // gesture the browser requires. `?music` / `?music=0` forces it.
   musicOn: bool('music', 'music', false),
-  musicGain: num('music', 'master', 0.35, 0, 1, 0.01),
+  musicGain: num('music', 'master', 0.2, 0, 1, 0.01),
+  musicDrone: num('music', 'drone', 0.5, 0, 2, 0.05),
+  musicBeat: num('music', 'beat cents', 7, 0, 30, 0.5),
+  musicGlide: num('music', 'glide s', 0.35, 0, 2, 0.05),
   musicRing: num('music', 'note ring s', 8, 1, 16, 0.5),
   musicReverb: num('music', 'reverb wet', 0.35, 0, 1, 0.01),
   musicDensity: num('music', 'fleet density', 1, 0, 3, 0.05),
   musicBed: num('music', 'fleet level', 1, 0, 2, 0.05),
   musicPhrase: num('music', 'phrase level', 1, 0, 2, 0.05),
-  musicRippleSeq: num('music', 'ripple → hulls', 1, 0, 2, 0.05),
   musicRippleBell: num('music', 'ripple bell', 1, 0, 2, 0.05),
+  musicRippleSeq: num('music', 'ripple → hulls', 1, 0, 2, 0.05),
+  musicRippleStop: num('music', 'ripple → stations', 0.8, 0, 2, 0.05),
+  musicRippleLine: num('music', 'ripple → routes', 0.35, 0, 2, 0.05),
   musicRippleGate: num('music', 'wave arrival', 0.06, 0.01, 0.4, 0.01),
   musicPan: num('music', 'heel → pan', 0.6, 0, 1, 0.05),
 
