@@ -25,8 +25,10 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
 - `?sel=<stopId>` — open a terminal board on load (Ferry Building = 7201)
 - `?wt=<sec>` — freeze water animation at a fixed time
 - `?ripple` / `?ripplekick` — automatic ripples for tuning / headless testing
-- `?bob` — boats ride the water (off by default; `?bob=0` forces it off). Same
-  switch as the dev panel's "bob" group; the rest of that group tunes it.
+- `?bob=0` — stop boats riding the water (on by default). Same switch as the
+  dev panel's "bob" group; the rest of that group tunes it. "hull length m" is
+  the load-bearing one — it sets both which waves a boat answers and the
+  baseline its heel is measured over.
 
 ## Architecture
 

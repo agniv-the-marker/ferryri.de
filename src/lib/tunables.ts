@@ -105,13 +105,15 @@ export const SPECS = {
   rippleAmp: num('ripple', 'visual strength', 1.75, 0, 2.5, 0.05),
 
   // ---- boat bob (vessels ride the ripple field + the open-water swell) ----
-  // Off by default: it costs a per-frame readback of the wave field, and the
-  // right amount of motion is a taste call. Force it on with ?bob.
-  bobEnable: bool('bob', 'boats bob', false),
-  bobSwell: num('bob', 'swell share', 0.6, 0, 2, 0.05),
-  bobLift: num('bob', 'lift px', 4, 0, 12, 0.25),
-  bobScale: num('bob', 'size swell', 0.12, 0, 0.6, 0.01),
-  bobRock: num('bob', 'rock °', 6, 0, 30, 0.5),
+  // `?bob=0` turns it off. Hull length is the load-bearing one: it sets both
+  // which waves a boat answers and the baseline its heel is measured over.
+  bobEnable: bool('bob', 'boats bob', true),
+  bobHull: num('bob', 'hull length m', 50, 10, 150, 5),
+  bobEase: num('bob', 'hull lag s', 0.3, 0, 1.5, 0.05),
+  bobSwell: num('bob', 'swell share', 0.9, 0, 2, 0.05),
+  bobLift: num('bob', 'lift px', 6, 0, 16, 0.25),
+  bobScale: num('bob', 'size swell', 0.15, 0, 0.6, 0.01),
+  bobRock: num('bob', 'rock °', 7, 0, 30, 0.5),
   bobSway: num('bob', 'sway px', 1.5, 0, 8, 0.1),
   bobDock: num('bob', 'docked ×', 0.4, 0, 1, 0.05),
 
