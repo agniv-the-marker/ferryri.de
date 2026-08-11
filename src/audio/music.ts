@@ -224,8 +224,8 @@ export class Music {
           preset: voice.preset,
           freq: degreeToFreq(voice, this.degreeOf(v, state.nowSec)),
           when: now + 0.02,
-          ring: T.musicRing * 0.6,
-          velocity: Math.min(0.9, 0.3 + height * 2) * hulls,
+          ring: T.musicRing * 0.35,
+          velocity: Math.min(1, 0.55 + height * 2) * hulls,
           pan: this.panOf(v, state),
           detune: vesselDetune(v.trip.id),
           priority: 3,
@@ -378,10 +378,46 @@ export class Music {
     });
   }
 
-  /** Tapping a terminal: its next sailings, as a phrase. */
-  terminalPhrase(deps: Departure[], nowSec: number, routesHere: string[]) {
+  /**
+   * Tapping a terminal: the place announces itself in its own instrument —
+   * the Ferry Building's bell, Mare Island's struck metal — and its next
+   * sailings follow as a phrase.
+   */
+  terminalPhrase(stationId: string, deps: Departure[], nowSec: number, routesHere: string[]) {
+    const { ctx, engine } = this;
+    if (ctx && engine && this.on && T.musicPhrase > 0) {
+      const st = this.stations.find((s) => s.id === stationId);
+      if (st) {
+        engine.play({
+          preset: st.voice.preset,
+          freq: degreeToFreq(st.voice, st.degree),
+          when: ctx.currentTime + 0.02,
+          ring: T.musicRing,
+          velocity: 0.6 * T.musicPhrase,
+          priority: 3,
+        });
+      }
+    }
     const notes = deps.length ? phraseFrom(deps, nowSec) : idleFigure(routesHere);
-    this.playPhrase(notes);
+    this.playPhrase(notes, 0.45);
+  }
+
+  /**
+   * Picking a route out of the legend plays it, alone. Every route has its own
+   * instrument, and this is how you hear that — otherwise the only way to
+   * learn one is to wait for it to come round in the bed.
+   */
+  auditionRoute(routeId: string) {
+    const voice = this.voices.get(routeId);
+    if (!voice) return;
+    this.playPhrase(
+      [0, 2, 4].map((degree, i) => ({
+        routeId,
+        at: i * 0.42,
+        degree,
+        velocity: 0.62 - i * 0.06,
+      })),
+    );
   }
 
   /** Tapping a ferry: its own voice, running out the rest of the crossing. */
@@ -399,10 +435,10 @@ export class Music {
     );
   }
 
-  private playPhrase(notes: PhraseNote[]) {
+  private playPhrase(notes: PhraseNote[], delay = 0.05) {
     const { ctx, engine } = this;
     if (!ctx || !engine || !this.on || T.musicPhrase <= 0) return;
-    const t0 = ctx.currentTime + 0.05;
+    const t0 = ctx.currentTime + delay;
     for (const n of notes) {
       const voice = this.voices.get(n.routeId);
       if (!voice || !this.visible(n.routeId)) continue;

@@ -85,11 +85,22 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
 | `wave arrival` | how high the water must rise to count as "the wave got here". Peak under a hull is ~0.13, so 0.02 fires most things and 0.20 fires nothing |
 | `heel → pan` | how far a rolling boat pushes its note toward one ear |
 
+Clicking a route in the legend **auditions it** — solos it and plays its
+instrument — because otherwise the only way to learn a route's voice is to wait
+for it to come round in the bed. Tapping a terminal announces the place in its
+own instrument before its departures play.
+
 Every route and every station has its **own instrument**, not just its own
 pitch. `src/audio/voices.ts` holds nine families whose identity is a harmonic
 spectrum (`createPeriodicWave`), an optional inharmonic partial — 2.76× is what
 makes a bell sound like metal — a filter that closes as the note rings, and a
-noise onset. `assignVoices` deals families × registers so no two routes collide,
+noise onset — with cutoffs measured in *harmonics of the note*, not hertz, so a
+voice keeps its colour in every register. Struck families never glide: a pitch
+sliding into place is louder than any spectrum behind it, and when every voice
+did it, sixteen of nineteen routes measured identical through their whole
+attack. Keep the reverb short for the same reason — at four seconds the room
+took longer to build than most attacks last, and what you heard peak was the
+room. `assignVoices` deals families × registers so no two routes collide,
 and `STATION_VOICE` in `score.ts` assigns each terminal by hand from what the
 place *was*: the Ferry Building is a bell for its clock tower, Mare Island is
 struck metal for the shipyard, Angel Island is wood for the immigration

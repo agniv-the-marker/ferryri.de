@@ -208,6 +208,9 @@ async function boot() {
   let syncLegend: (routeId: string | null) => void = () => {};
   const setRouteFilter = (routeId: string | null) => {
     overlay.highlightRoute = routeId;
+    // picking a route out of the legend solos it, so play it — it is the only
+    // way to hear what one route's instrument actually sounds like
+    if (routeId) music.auditionRoute(routeId);
     syncLegend(routeId);
     currentBoard?.refresh(boardCtx());
   };
@@ -248,6 +251,7 @@ async function boot() {
     // the board and the phrase are the same information, read two ways
     const ctx = boardCtx();
     music.terminalPhrase(
+      t.id,
       departuresFrom(timed, stopFamily(ctx, t), currentSec, 6),
       currentSec,
       schedule.routes.filter((r) => r.terminals.includes(t.id) && routeVisible(r)).map((r) => r.id),
