@@ -1,5 +1,7 @@
 /**
- * Route colour key, bottom right. Always on at desktop width, collapsed
+ * Route colour key, bottom right, and the key to the score with it: each row
+ * names the instrument that route plays, since a colour tells you which line
+ * you are looking at and nothing tells you which line you are *hearing*. Always on at desktop width, collapsed
  * behind a "routes" button on a phone. Selecting a route spotlights it on
  * the map and filters whatever board is open.
  *
@@ -12,6 +14,8 @@ import { onVisibilityChange, routeVisible } from '../lib/visibility';
 export function initLegend(
   data: ScheduleData,
   onSelect: (routeId: string | null) => void,
+  /** What this route sounds like, printed under its name. */
+  instrumentOf?: (routeId: string) => string | null,
 ): (routeId: string | null) => void {
   const nav = document.getElementById('legend')!;
   const toggle = document.getElementById('legend-toggle')!;
@@ -44,6 +48,13 @@ export function initLegend(
           ? r.name.replace(/ - San Francisco Ferry$/, '')
           : r.name;
         li.style.cursor = 'pointer';
+        const instrument = instrumentOf?.(r.id);
+        if (instrument) {
+          const voice = document.createElement('span');
+          voice.className = 'voice';
+          voice.textContent = instrument;
+          li.append(voice);
+        }
         const swatch = document.createElement('span');
         swatch.className = 'swatch';
         swatch.style.background = r.accent;

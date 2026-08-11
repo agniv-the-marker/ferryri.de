@@ -36,7 +36,9 @@ import {
   stationGapFor,
   stationPosts,
   stationVoice,
+  stationVoiceName,
   vesselDetune,
+  voiceNames,
   type PhraseNote,
   type Post,
   type RouteVoice,
@@ -82,6 +84,8 @@ export class Music {
   private bank: Bank | null = null;
   private timer: number | null = null;
   private voices: Map<string, RouteVoice>;
+  /** Route id → the instrument's name, for the parts of the UI that show it. */
+  private names: Map<string, string>;
   private routeById: Map<string, Route>;
   private posts: Post[];
   private stations: StationPost[];
@@ -127,6 +131,7 @@ export class Music {
 
   constructor(data: ScheduleData) {
     this.voices = assignVoices(data.routes);
+    this.names = voiceNames(data.routes);
     this.routeById = new Map(data.routes.map((r) => [r.id, r]));
     // projected once at boot, not per frame
     this.posts = listeningPosts(data);
@@ -182,6 +187,27 @@ export class Music {
     if (!this.engine) return;
     if (on) this.engine.stopDrone();
     else if (this.on) this.engine.startDrone(DRONE_FREQS);
+  }
+
+  /**
+   * What a route or a terminal sounds like, in words — so the legend and the
+   * boards can say it rather than leaving you to work it out by ear. The
+   * assignment is deterministic, so these are stable for a given feed.
+   */
+  instrumentFor(routeId: string): string | null {
+    return this.names.get(routeId) ?? null;
+  }
+
+  instrumentForStation(stationId: string): string {
+    return stationVoiceName(stationId);
+  }
+
+  /** Sound one terminal on its own, for someone learning the place by ear. */
+  announce(stationId: string) {
+    const st = this.stations.find((s) => s.id === stationId);
+    if (!st) return;
+    this.audition('station', stationId);
+    this.flashStation(st.id);
   }
 
   /** Names the dev panel can walk through. */

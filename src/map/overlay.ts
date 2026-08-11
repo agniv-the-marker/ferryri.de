@@ -371,14 +371,14 @@ export class Overlay {
         // under the dot it came from, and all but gone by the time it was big
         // enough to see.
         ctx.beginPath();
-        ctx.arc(p.x, p.y, 5 + (1 - lit) * 9, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, T.stationSize + 1.5 + (1 - lit) * 9, 0, Math.PI * 2);
         ctx.globalAlpha = Math.pow(lit, 0.6) * 0.65;
         ctx.lineWidth = 1.2;
         ctx.strokeStyle = ink;
         ctx.stroke();
         ctx.globalAlpha = 1;
       }
-      const r = (selected ? 4.5 : 3.5) + lit * 1.2;
+      const r = T.stationSize + (selected ? 1 : 0) + lit * 1.2;
       ctx.beginPath();
       ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
       ctx.fillStyle = bg;
@@ -565,8 +565,10 @@ export class Overlay {
       if (!this.terminalVisible(t)) continue;
       const p = toScreen(t.world);
       const d = Math.hypot(p.x - x, p.y - y);
-      // terminals get a generous 22px touch target; vessels win ties
-      if (d < 22 && d - 4 < bestD) {
+      // terminals get a generous touch target, scaled from the dot so the
+      // thing you can hit stays proportional to the thing you can see;
+      // vessels still win ties, or a boat at its berth becomes unclickable
+      if (d < Math.max(24, T.stationSize * 6) && d - 4 < bestD) {
         bestD = d;
         best = { type: 'terminal', terminal: t };
       }

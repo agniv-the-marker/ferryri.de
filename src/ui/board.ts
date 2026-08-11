@@ -261,6 +261,8 @@ export function terminalBoard(
   terminal: Terminal,
   onExpand?: () => void,
   onFilterRoute?: (routeId: string | null) => void,
+  /** What this place sounds like, and how to hear it again. */
+  voice?: { name: string; play: () => void },
 ): BoardHandle {
   const root = el('div');
   const isGate = !!terminal.gate;
@@ -269,6 +271,18 @@ export function terminalBoard(
     ? `Gate ${terminal.gate} · Ferry Building`
     : terminal.name.replace(/ (Ferry Terminal|Water Shuttle Dock|Ferry Dock)$/, '');
   root.append(el('h1', 'sheet-title', title));
+  if (voice) {
+    // Every terminal has an instrument picked from what the place was, and
+    // until now the only way to learn which was to wait for a wave to reach
+    // it. Naming it makes the score readable; pressing it plays the place.
+    const line = el('button', 'sheet-voice');
+    line.append(document.createTextNode('voice · '));
+    const name = el('span', 'swatch-note', voice.name);
+    line.append(name);
+    line.title = `Hear ${title}`;
+    line.addEventListener('click', voice.play);
+    root.append(line);
+  }
   const sub = el('div', 'sheet-sub');
 
   const initialRoutes = routesAt(ctx, terminal);

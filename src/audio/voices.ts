@@ -97,6 +97,26 @@ export type FamilyName = keyof typeof FAMILIES;
  * Order routes are dealt across, arranged so that consecutive routes — which
  * are usually neighbours on the map — land in contrasting families.
  */
+/**
+ * What each family is, in a word you can read off the map.
+ *
+ * These are the recordings the sampled palette actually plays (see
+ * `scripts/fetch-voices.ts`), and the synthesised voices are modelled on the
+ * same instruments — so the name is true either way. Kept short because it is
+ * printed in a 0.55rem legend row next to a route name.
+ */
+export const INSTRUMENT_NAME: Record<FamilyName, string> = {
+  reed: 'clarinet',
+  pipe: 'flute',
+  bowed: 'cello',
+  bell: 'tubular bells',
+  plucked: 'pizzicato',
+  glass: 'celesta',
+  wood: 'marimba',
+  metal: 'vibraphone',
+  hum: 'choir',
+};
+
 export const FAMILY_ORDER: FamilyName[] = [
   'reed', 'bell', 'bowed', 'wood', 'pipe', 'metal', 'plucked', 'hum', 'glass',
 ];

@@ -286,6 +286,15 @@ async function boot() {
       t,
       () => sheet.expand(),
       setRouteFilter,
+      {
+        name: music.instrumentForStation(t.parent ?? t.id),
+        // pressing something labelled "voice" is a request to hear it, so it
+        // is also the gesture that starts the music if it was not running
+        play: () => {
+          if (!music.enabled) setMusic(true);
+          music.announce(t.parent ?? t.id);
+        },
+      },
     );
     sheet.open(currentBoard.el, 'half');
     // the board and the phrase are the same information, read two ways
@@ -502,7 +511,7 @@ async function boot() {
   );
   initAbout();
   // the legend and the planner's dropdown are two faces of one filter
-  syncLegend = initLegend(schedule, setRouteFilter);
+  syncLegend = initLegend(schedule, setRouteFilter, (id) => music.instrumentFor(id));
 }
 
 // offline: everything is static + simulated, so the whole site works mid-bay
