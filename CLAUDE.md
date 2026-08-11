@@ -14,6 +14,8 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
 - `npm run data` — refresh `public/data/schedule.json` from the official SF Bay
   Ferry and Golden Gate feeds and merge locally curated published schedules
   and the external-service catalog.
+- `npm run voices` — one-time fetch of `public/audio/bank/` (sampled voices,
+  FluidR3_GM via MIDI.js soundfonts, CC-BY 3.0). Outputs are committed.
 - `npm run geo` — one-time rebuild of `public/data/coast.json` (MTC/TIGER
   shoreline) and `topo.png` (terrarium hillshade). Outputs are committed.
 
@@ -84,16 +86,38 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
 | `station reach m` | how far offshore a terminal listens — metres, because a dock sampled at the dock never hears anything |
 | `wave arrival` | how high the water must rise to count as "the wave got here". Peak under a hull is ~0.13, so 0.02 fires most things and 0.20 fires nothing |
 | `heel → pan` | how far a rolling boat pushes its note toward one ear |
+| `harbor` / `foghorn` | the room: wash, an idling engine, a bell buoy, and the horn |
+| `sampled voices` | recorded instruments instead of synthesised ones (`?voices=sf`) |
+| `focus lift ×` / `others duck ×` | tapping a ferry brings it forward and pushes the rest back; the bus is made up so the mix keeps its level |
+
+Clicking a route in the legend **auditions it** — solos it and plays its
+instrument — because otherwise the only way to learn a route's voice is to wait
+for it to come round in the bed. Tapping a terminal announces the place in its
+own instrument before its departures play.
 
 Every route and every station has its **own instrument**, not just its own
 pitch. `src/audio/voices.ts` holds nine families whose identity is a harmonic
 spectrum (`createPeriodicWave`), an optional inharmonic partial — 2.76× is what
 makes a bell sound like metal — a filter that closes as the note rings, and a
-noise onset. `assignVoices` deals families × registers so no two routes collide,
+noise onset — with cutoffs measured in *harmonics of the note*, not hertz, so a
+voice keeps its colour in every register. Struck families never glide: a pitch
+sliding into place is louder than any spectrum behind it, and when every voice
+did it, sixteen of nineteen routes measured identical through their whole
+attack. Keep the reverb short for the same reason — at four seconds the room
+took longer to build than most attacks last, and what you heard peak was the
+room. `assignVoices` deals families × registers so no two routes collide,
 and `STATION_VOICE` in `score.ts` assigns each terminal by hand from what the
 place *was*: the Ferry Building is a bell for its clock tower, Mare Island is
 struck metal for the shipyard, Angel Island is wood for the immigration
 barracks. Clicking one route in the legend solos it outright.
+
+`harbor.ts` is the room tone — wash, engine hum, bell buoy, foghorn — and it is
+**synthesised, not recorded**: nobody could hold a microphone off a pier, and
+shipping downloaded audio nobody has listened to would be worse than shipping
+none. `bank.ts` is the alternate palette, one recorded instrument per family at
+four pitches with `playbackRate` between, sharing the score, the envelopes, the
+voice pool and the bus — so the only thing that changes is where the sound
+comes from. It is fetched only when someone switches to it.
 
 Two things worth knowing before changing this code. The wave field is flat far
 more than 99% of the time, so everything that reads it is gated behind a
@@ -101,6 +125,23 @@ listening window opened by `music.tapped()` — the per-frame sampling (and the
 GPU readback feeding it) was the map's stutter. And terminals stand on the
 shore, where the sim pins the field flat so waves reflect; a station listens on
 a small ring offshore or it never hears anything.
+
+## The listening bench (dev panel, `listen` group)
+
+`src/ui/devTools.ts`. The same checks the headless `?kick` params run, with
+buttons on them, reporting into the panel instead of the tab title:
+
+| button | what it does |
+| --- | --- |
+| `instruments` | plays all nine synth families in turn at one pitch — the fastest way to hear whether they differ |
+| `routes` | plays every route's voice, in legend order |
+| `stations` | plays every terminal's voice |
+| `tap the bay` | drops a ripple at the view centre and counts what answers as the wavefront spreads |
+| `render check` | renders a fixed handful of notes offline and reports the level, no speaker needed |
+
+The audition buttons exist because a route's instrument is otherwise only heard
+when the bay happens to sound it, which can be minutes — there was no way to
+answer "do these actually differ?" except by waiting.
 
 ## Verifying schedule accuracy
 

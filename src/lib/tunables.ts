@@ -138,9 +138,9 @@ export const SPECS = {
   musicGain: num('music', 'master', 0.2, 0, 1, 0.01),
   musicDrone: num('music', 'drone', 0.5, 0, 2, 0.05),
   musicBeat: num('music', 'beat cents', 7, 0, 30, 0.5),
-  musicGlide: num('music', 'glide s', 0.35, 0, 2, 0.05),
-  musicRing: num('music', 'note ring s', 8, 1, 16, 0.5),
-  musicReverb: num('music', 'reverb wet', 0.35, 0, 1, 0.01),
+  musicGlide: num('music', 'glide s', 0.12, 0, 2, 0.01),
+  musicRing: num('music', 'note ring s', 5, 1, 16, 0.5),
+  musicReverb: num('music', 'reverb wet', 0.16, 0, 1, 0.01),
   musicDensity: num('music', 'fleet density', 1, 0, 3, 0.05),
   musicBed: num('music', 'fleet level', 1, 0, 2, 0.05),
   musicPhrase: num('music', 'phrase level', 1, 0, 2, 0.05),
@@ -153,6 +153,19 @@ export const SPECS = {
   // it stands on land where the sim pins the field flat.
   musicStationReach: num('music', 'station reach m', 250, 50, 1200, 25),
   musicPan: num('music', 'heel → pan', 0.6, 0, 1, 0.05),
+  // The room the music sits in: wash, an idling engine, a bell buoy, and the
+  // occasional foghorn. Synthesised, not recorded — see src/audio/harbor.ts.
+  musicHarbor: num('music', 'harbor', 0.8, 0, 2, 0.05),
+  musicFoghorn: num('music', 'foghorn', 1, 0, 2, 0.05),
+  // Recorded instruments instead of synthesised ones — the same score, the
+  // same envelopes, a different palette. ~0.7 MB, fetched only when switched
+  // on. `?voices=sf` picks it at boot so the two can be compared on a reload.
+  musicSampled: bool('music', 'sampled voices', false),
+  // Tapping a ferry brings it forward and pushes the rest back, with a
+  // make-up on the bus so the mix does not get quieter — you hear *more* of
+  // that boat, not less of everything.
+  musicFocus: num('music', 'focus lift ×', 1.9, 1, 4, 0.1),
+  musicFocusDuck: num('music', 'others duck ×', 0.35, 0, 1, 0.05),
 
   // ---- camera ----
   camStiffness: num('camera', 'damping stiffness', 12.5, 2, 20, 0.5),

@@ -36,11 +36,18 @@ const PANEL_CSS = `
   padding: 0.25rem 0.6rem;
 }
 #dev-panel button:hover { border-color: var(--text-tertiary); color: var(--text); }
+#dev-panel .tool-row { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.2rem 0 0.4rem; }
+#dev-panel .tool-row button { padding: 0.2rem 0.4rem; }
+#dev-panel .tool-out {
+  color: var(--text-secondary); line-height: 1.35; min-height: 2.4em;
+  border-left: 2px solid var(--border); padding-left: 0.45rem;
+}
 `;
 
 let open = false;
 let panel: HTMLElement | null = null;
 let schedule: ScheduleData | null = null;
+let tools: (() => HTMLElement) | null = null;
 
 export function toggleDevPanel() {
   open = !open;
@@ -48,8 +55,9 @@ export function toggleDevPanel() {
   if (panel) panel.style.display = open ? '' : 'none';
 }
 
-export function initDevPanel(data: ScheduleData) {
+export function initDevPanel(data: ScheduleData, makeTools?: () => HTMLElement) {
   schedule = data;
+  tools = makeTools ?? null;
   if (new URLSearchParams(location.search).has('dev')) toggleDevPanel();
 }
 
@@ -149,6 +157,8 @@ function build(): HTMLElement {
       setOperatorVisible,
     );
   }
+
+  if (tools) panel.append(tools());
 
   const actions = document.createElement('div');
   actions.className = 'actions';

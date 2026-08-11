@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "data": "tsx scripts/build-data.ts",
-    "geo": "tsx scripts/build-geo.ts"
+    "geo": "tsx scripts/build-geo.ts",
+    "voices": "tsx scripts/fetch-voices.ts"
   },
   "devDependencies": {
     "@fontsource-variable/eb-garamond": "^5.2.5",

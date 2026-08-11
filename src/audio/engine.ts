@@ -15,6 +15,7 @@
  * the backstop so a tap during a full bay can never clip.
  */
 import { T } from '../lib/tunables';
+import type { Bank } from './bank';
 
 export interface VoicePreset {
   /**
@@ -39,16 +40,28 @@ export interface VoicePreset {
   sustain: number;
   /** seconds of tail once the note is released */
   release: number;
-  /** lowpass corner in Hz at the onset */
-  cutoff: number;
-  /** where that corner settles as the note rings; most of struck-vs-bowed */
-  cutoffEnd?: number;
+  /**
+   * How many harmonics survive at the onset, and where that settles as the
+   * note rings. In harmonics of the note, not hertz: a corner fixed in hertz
+   * keeps eight harmonics of a low note and none of a high one, so a voice
+   * would change character every time it changed register.
+   */
+  bright: number;
+  brightEnd?: number;
+  /**
+   * How much of the global glide this family takes. Struck things are 0 —
+   * a bell does not slide into tune, and when everything slid, everything
+   * sounded alike.
+   */
+  glide?: number;
   /** level trim, 0..1 */
   gain: number;
 }
 
 export interface Note {
   preset: VoicePreset;
+  /** Which family this is, so the sampled palette knows what to reach for. */
+  family?: string;
   freq: number;
   /** context time to start; anything in the past is nudged to now */
   when: number;
@@ -76,11 +89,14 @@ export interface Note {
  */
 const MAX_VOICES = 20;
 /**
- * Reverb length. Measured against a dry mix of the same voices: six seconds of
- * convolution costs 1.7× dry, two seconds 1.1×. Four is the compromise — still
- * a big room, with the headroom back.
+ * Reverb length. Four seconds of tail took over an eighth of a second to build,
+ * which is longer than most of these attacks last — measured, four families
+ * peaked at 1.14 s regardless of whether their attack was 8 ms or 1.1 s,
+ * because what peaked was the room and not the instrument. A shorter room
+ * lets an attack be heard, which is where the ear identifies an instrument.
+ * (Cost, measured: 6 s of convolution is 1.7× a dry mix, 2 s is 1.1×.)
  */
-const REVERB_SECONDS = 4;
+const REVERB_SECONDS = 2.2;
 /** The drone is meant to be felt more than heard, so its tunable starts quiet. */
 const DRONE_TRIM = 0.08;
 
@@ -114,6 +130,8 @@ export class Engine {
   debugDropped = 0;
   private drone: OscillatorNode[] = [];
   private droneGain: GainNode | null = null;
+  /** When set and loaded, notes come from recordings instead of oscillators. */
+  bank: Bank | null = null;
   /** One PeriodicWave per preset, built on first use and kept. */
   private waves = new Map<VoicePreset, PeriodicWave>();
   private noise: AudioBuffer | null = null;
@@ -154,6 +172,16 @@ export class Engine {
     this.wet.connect(comp);
   }
 
+  /** Where anything that wants the master and the room should connect. */
+  get bus(): AudioNode {
+    return this.master;
+  }
+
+  /** Shared noise, also used by the harbor's wash. */
+  get noiseSource(): AudioBuffer {
+    return this.noiseBuffer();
+  }
+
   /** The preset's harmonic series, as a wave the oscillator can play. */
   private waveFor(p: VoicePreset): PeriodicWave {
     let w = this.waves.get(p);
@@ -179,10 +207,37 @@ export class Engine {
     return this.noise;
   }
 
+  /**
+   * Make-up gain while one voice is in focus. Ducking everything else would
+   * otherwise just make the whole map quieter; this puts the level back so the
+   * focused boat is heard *more*, not everything else less.
+   */
+  private focused = false;
+
+  setFocused(focused: boolean) {
+    this.focused = focused;
+  }
+
+  /**
+   * Make-up for the focus duck. Voices that are not in step add in *power*,
+   * not amplitude, so this is the inverse of the power ratio and not of the
+   * duck — using the duck directly made a focused mix 54% louder instead of
+   * level. It reads the number of voices actually sounding rather than
+   * assuming one, because with three boats up the focused one already
+   * dominates and needs almost no help, while with ten it needs real make-up.
+   */
+  private get makeup(): number {
+    if (!this.focused) return 1;
+    const n = Math.max(3, Math.min(10, this.live.length || 3));
+    const lift = T.musicFocus;
+    const duck = T.musicFocusDuck;
+    return Math.min(1.6, Math.sqrt(n / Math.max(0.01, lift * lift + (n - 1) * duck * duck)));
+  }
+
   /** Live-tunable levels, pushed on every dev-panel change. */
   sync() {
     const t = this.ctx.currentTime;
-    this.master.gain.setTargetAtTime(T.musicGain, t, 0.05);
+    this.master.gain.setTargetAtTime(T.musicGain * this.makeup, t, 0.35);
     this.wet.gain.setTargetAtTime(T.musicReverb, t, 0.05);
     if (this.droneGain) {
       this.droneGain.gain.setTargetAtTime(T.musicDrone * DRONE_TRIM, t, 0.4);
@@ -249,6 +304,22 @@ export class Engine {
     const peak = Math.max(0, Math.min(1, n.velocity)) * p.gain;
     if (peak <= 0.0001) return false;
 
+    // The sampled palette borrows the pool accounting and the bus, so the mix,
+    // the stealing and the room all behave identically either way — the only
+    // thing that changes is where the sound comes from.
+    if (this.bank?.ready && n.family && this.bank.play(n.family, n, this.master)) {
+      const held = { env: ctx.createGain(), oscs: [] as OscillatorNode[], priority };
+      this.live.push(held);
+      setTimeout(
+        () => {
+          const i = this.live.indexOf(held);
+          if (i >= 0) this.live.splice(i, 1);
+        },
+        (Math.max(0.05, n.ring) + p.release) * 1000,
+      );
+      return true;
+    }
+
     const env = ctx.createGain();
     env.gain.setValueAtTime(0, t);
     env.gain.linearRampToValueAtTime(peak, t + p.attack);
@@ -262,9 +333,11 @@ export class Engine {
     // The corner closes as the note rings. A bell is bright for an instant and
     // dark for the rest of its life; a bowed note barely moves. This is most of
     // what the ear uses to tell one from the other.
-    lp.frequency.setValueAtTime(p.cutoff, t);
-    if (p.cutoffEnd !== undefined && p.cutoffEnd !== p.cutoff) {
-      lp.frequency.setTargetAtTime(p.cutoffEnd, t, Math.max(0.05, p.decay / 3));
+    const corner = (harmonics: number) =>
+      Math.max(180, Math.min(14000, harmonics * n.freq));
+    lp.frequency.setValueAtTime(corner(p.bright), t);
+    if (p.brightEnd !== undefined && p.brightEnd !== p.bright) {
+      lp.frequency.setTargetAtTime(corner(p.brightEnd), t, Math.max(0.05, p.decay / 3));
     }
 
     const pan = ctx.createStereoPanner();
@@ -273,7 +346,7 @@ export class Engine {
     // Two oscillators, split by `beat cents`, so the note breathes against
     // itself instead of sitting dead still.
     const spread = T.musicBeat / 2;
-    const glide = T.musicGlide;
+    const glide = T.musicGlide * (p.glide ?? 1);
     const wave = this.waveFor(p);
     const oscs = [-1, 1].map((side) => {
       const osc = ctx.createOscillator();

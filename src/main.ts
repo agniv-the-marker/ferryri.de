@@ -11,6 +11,7 @@ import { now as simNow, localTime } from './lib/clock';
 import { departuresFrom, tripsForDay, type TimedTrip } from './sim/schedule';
 import { vesselsAt } from './sim/vessels';
 import { initDevPanel } from './ui/devPanel';
+import { buildDevTools } from './ui/devTools';
 import { initAbout } from './ui/about';
 import { initLegend } from './ui/legend';
 import { Sheet } from './ui/sheet';
@@ -139,10 +140,15 @@ async function boot() {
   // inside the click's own call stack — which is the gesture browsers require.
   musicBtn.addEventListener('click', () => setTunable('musicOn', !music.enabled));
   onTune(() => {
+    music.syncPalette();
     if (T.musicOn === music.enabled) return;
     musicBtn.setAttribute('aria-pressed', String(T.musicOn));
     void music.setEnabled(T.musicOn);
   });
+  // dev: ?voices=sf boots on the sampled palette, so a reload is the whole A/B
+  if (new URLSearchParams(location.search).get('voices') === 'sf') {
+    setTunable('musicSampled', true);
+  }
   const musicParam = new URLSearchParams(location.search).get('music');
   // A choice left on last visit can't resume itself — browsers need a gesture,
   // so it arms here and starts on whatever the visitor touches first.
@@ -208,6 +214,9 @@ async function boot() {
   let syncLegend: (routeId: string | null) => void = () => {};
   const setRouteFilter = (routeId: string | null) => {
     overlay.highlightRoute = routeId;
+    // picking a route out of the legend solos it, so play it — it is the only
+    // way to hear what one route's instrument actually sounds like
+    if (routeId) music.auditionRoute(routeId);
     syncLegend(routeId);
     currentBoard?.refresh(boardCtx());
   };
@@ -218,6 +227,7 @@ async function boot() {
   });
 
   sheet.onClose = () => {
+    music.setFocus(null);
     overlay.selected = null;
     currentBoard = null;
     selectedVesselTrip = null;
@@ -248,6 +258,7 @@ async function boot() {
     // the board and the phrase are the same information, read two ways
     const ctx = boardCtx();
     music.terminalPhrase(
+      t.id,
       departuresFrom(timed, stopFamily(ctx, t), currentSec, 6),
       currentSec,
       schedule.routes.filter((r) => r.terminals.includes(t.id) && routeVisible(r)).map((r) => r.id),
@@ -336,6 +347,7 @@ async function boot() {
       currentBoard = vesselCard(boardCtx(), v);
       sheet.open(currentBoard.el, 'half');
       music.vesselRun(v, currentSec);
+      music.setFocus(v.trip.id); // this boat comes forward until you close it
       setStationName(routeById.get(v.routeId)?.name ?? 'Ferry');
     } else {
       // empty map: ripple on water, close whatever is open
@@ -441,7 +453,19 @@ async function boot() {
     }
   }
 
-  initDevPanel(schedule);
+  initDevPanel(schedule, () =>
+    buildDevTools({
+      music,
+      data: schedule,
+      tapBay: () => {
+        const { w, h } = camera.viewport;
+        if (!renderer.isLand(w / 2, h / 2)) {
+          renderer.addRipple(w / 2, h / 2);
+          music.tapped();
+        }
+      },
+    }),
+  );
   initAbout();
   // the legend and the planner's dropdown are two faces of one filter
   syncLegend = initLegend(schedule, setRouteFilter);

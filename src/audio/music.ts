@@ -21,7 +21,9 @@ import type { VesselState } from '../sim/vessels';
 import { T } from '../lib/tunables';
 import { routeVisible } from '../lib/visibility';
 import { Engine } from './engine';
-import { TAP } from './voices';
+import { Harbor } from './harbor';
+import { Bank } from './bank';
+import { FAMILIES, TAP, type FamilyName } from './voices';
 import {
   DRONE_FREQS,
   assignVoices,
@@ -71,6 +73,8 @@ const STORAGE_KEY = 'ferryride.music';
 export class Music {
   private ctx: AudioContext | null = null;
   private engine: Engine | null = null;
+  private harbor: Harbor | null = null;
+  private bank: Bank | null = null;
   private timer: number | null = null;
   private voices: Map<string, RouteVoice>;
   private routeById: Map<string, Route>;
@@ -79,6 +83,8 @@ export class Music {
   private tapVoice: RouteVoice = { preset: TAP, octave: 1 };
   /** Context time after which the water is assumed flat again. */
   private listenUntil = 0;
+  /** Trip id of the vessel brought forward in the mix, if any. */
+  private focus: string | null = null;
   private snapshot: FrameState | null = null;
   /** next fleet-bed note per trip, in context time */
   private nextAt = new Map<string, number>();
@@ -105,6 +111,51 @@ export class Music {
     // projected once at boot, not per frame
     this.posts = listeningPosts(data);
     this.stations = stationPosts(data.terminals);
+  }
+
+  /**
+   * Play one family, one route or one station on demand, so the dev panel can
+   * walk you through the palette instead of you waiting for the bay to happen
+   * to sound them.
+   */
+  audition(kind: 'family' | 'route' | 'station', id: string): string {
+    const { ctx, engine } = this;
+    if (!ctx || !engine) return 'music is off';
+    let voice: RouteVoice | undefined;
+    let degree = 2;
+    if (kind === 'family') {
+      const preset = FAMILIES[id as FamilyName];
+      if (preset) voice = { preset, octave: 2, family: id as FamilyName };
+    } else if (kind === 'route') {
+      voice = this.voices.get(id);
+    } else {
+      const st = this.stations.find((x) => x.id === id);
+      if (st) { voice = st.voice; degree = st.degree; }
+    }
+    if (!voice) return `no voice for ${id}`;
+    engine.play({
+      preset: voice.preset,
+      family: voice.family,
+      freq: degreeToFreq(voice, degree),
+      when: ctx.currentTime + 0.02,
+      ring: Math.min(T.musicRing, 2.4),
+      velocity: 0.75,
+      priority: 3,
+    });
+    return `${voice.family} · register ${voice.octave} · ${degreeToFreq(voice, degree).toFixed(0)} Hz`;
+  }
+
+  /** Names the dev panel can walk through. */
+  get families(): string[] {
+    return Object.keys(FAMILIES);
+  }
+
+  /** What answered the last wave — reset each time the bay is tapped. */
+  resetCounts() {
+    this.debugWaveNotes = 0;
+    this.debugStationNotes = 0;
+    this.debugLineNotes = 0;
+    this.debugWavePeak = 0;
   }
 
   /** Was music left on last visit? Restored, but never resumed without a gesture. */
@@ -134,6 +185,7 @@ export class Music {
     }
     if (!on) {
       this.engine?.stopDrone();
+      this.harbor?.stop();
       await this.ctx?.suspend().catch(() => {});
       if (this.timer !== null) {
         clearInterval(this.timer);
@@ -144,7 +196,9 @@ export class Music {
     if (!this.ctx) {
       this.ctx = new AudioContext();
       this.engine = new Engine(this.ctx);
+      this.harbor = new Harbor(this.ctx, this.engine.bus, this.engine.noiseSource);
     }
+    this.syncPalette();
     // Chrome leaves resume() pending indefinitely — not rejected, pending —
     // when the autoplay policy blocks it, so never hang a caller on it.
     await Promise.race([
@@ -159,9 +213,30 @@ export class Music {
       this.timer = setInterval(() => this.tick(), TICK_MS) as unknown as number;
     }
     this.engine?.startDrone(DRONE_FREQS);
+    this.harbor?.start();
   }
 
-  /** Follows the page: no reason to keep a mix running for a hidden tab. */
+  /**
+   * Switch palettes. The bank is only fetched the first time someone actually
+   * asks for it, so nobody pays 0.7 MB for a palette they never chose.
+   */
+  syncPalette() {
+    const { ctx, engine } = this;
+    if (!ctx || !engine) return;
+    if (!T.musicSampled) {
+      engine.bank = null;
+      return;
+    }
+    if (!this.bank) {
+      this.bank = new Bank(ctx);
+      void this.bank.load([...new Set([...this.voices.values()].map((v) => v.family!))])
+        .then(() => {
+          if (T.musicSampled && this.engine) this.engine.bank = this.bank;
+        });
+      return;
+    }
+    engine.bank = this.bank;
+  }
   async setAwake(awake: boolean) {
     if (!this.ctx || !this.on) return;
     await (awake ? this.ctx.resume() : this.ctx.suspend()).catch(() => {});
@@ -175,10 +250,28 @@ export class Music {
     return this.on && !!this.ctx && this.ctx.currentTime <= this.listenUntil;
   }
 
+  /**
+   * Bring one vessel forward. Everything else steps back and the bus is made
+   * up to match, so the mix keeps its level and that boat simply becomes the
+   * thing you can hear in it.
+   */
+  setFocus(tripId: string | null) {
+    this.focus = tripId;
+    this.engine?.setFocused(tripId !== null);
+  }
+
+  /** How loud a given vessel should be, given what is in focus. */
+  private focusGain(tripId: string): number {
+    if (this.focus === null) return 1;
+    return this.focus === tripId ? T.musicFocus : T.musicFocusDuck;
+  }
+
   /** Called every rAF; cheap by design — it only leaves state behind. */
   frame(state: FrameState) {
     this.snapshot = state;
-    if (this.on) this.listenForWaves(state);
+    if (!this.on) return;
+    this.harbor?.setActivity(state.vessels.length);
+    this.listenForWaves(state);
   }
 
   // ---- ripple → hulls -----------------------------------------------------
@@ -222,10 +315,11 @@ export class Music {
         if (!this.arrived(v.trip.id, height, now, gate)) continue;
         if (this.engine.play({
           preset: voice.preset,
+          family: voice.family,
           freq: degreeToFreq(voice, this.degreeOf(v, state.nowSec)),
           when: now + 0.02,
-          ring: T.musicRing * 0.6,
-          velocity: Math.min(0.9, 0.3 + height * 2) * hulls,
+          ring: T.musicRing * 0.35,
+          velocity: Math.min(1, 0.55 + height * 2) * hulls * this.focusGain(v.trip.id),
           pan: this.panOf(v, state),
           detune: vesselDetune(v.trip.id),
           priority: 3,
@@ -260,6 +354,7 @@ export class Music {
         if (!this.arrived(`s${st.id}`, height, now, gate)) continue;
         if (this.engine.play({
           preset: st.voice.preset,
+          family: st.voice.family,
           freq: degreeToFreq(st.voice, st.degree),
           when: now + 0.02,
           ring: T.musicRing,
@@ -287,6 +382,7 @@ export class Music {
         if (!this.arrived(`l${i}`, height, now, gate)) continue;
         if (this.engine.play({
           preset: voice.preset,
+          family: voice.family,
           freq: degreeToFreq(voice, post.degree),
           when: now + 0.02,
           ring: T.musicRing * 0.4,
@@ -323,6 +419,7 @@ export class Music {
     const { ctx, engine, snapshot } = this;
     if (!ctx || !engine || !snapshot || !this.on) return;
     engine.sync();
+    this.harbor?.tick();
     const horizon = ctx.currentTime + LOOKAHEAD;
     const bed = T.musicBed;
     if (bed <= 0) return;
@@ -340,12 +437,13 @@ export class Music {
         continue;
       }
       if (at > horizon) continue;
-      const period = periodFor(id, T.musicDensity);
+      const period = periodFor(id, T.musicDensity * (this.focus === id ? 2.2 : 1));
       this.nextAt.set(id, at + period);
       // docked boats are tied up, not sailing — they murmur
-      const velocity = (v.docked ? 0.18 : 0.45) * bed;
+      const velocity = (v.docked ? 0.18 : 0.45) * bed * this.focusGain(id);
       engine.play({
         preset: voice.preset,
+        family: voice.family,
         freq: degreeToFreq(voice, this.degreeOf(v, snapshot.nowSec)),
         when: Math.max(at, ctx.currentTime),
         ring: T.musicRing,
@@ -378,10 +476,47 @@ export class Music {
     });
   }
 
-  /** Tapping a terminal: its next sailings, as a phrase. */
-  terminalPhrase(deps: Departure[], nowSec: number, routesHere: string[]) {
+  /**
+   * Tapping a terminal: the place announces itself in its own instrument —
+   * the Ferry Building's bell, Mare Island's struck metal — and its next
+   * sailings follow as a phrase.
+   */
+  terminalPhrase(stationId: string, deps: Departure[], nowSec: number, routesHere: string[]) {
+    const { ctx, engine } = this;
+    if (ctx && engine && this.on && T.musicPhrase > 0) {
+      const st = this.stations.find((s) => s.id === stationId);
+      if (st) {
+        engine.play({
+          preset: st.voice.preset,
+          family: st.voice.family,
+          freq: degreeToFreq(st.voice, st.degree),
+          when: ctx.currentTime + 0.02,
+          ring: T.musicRing,
+          velocity: 0.6 * T.musicPhrase,
+          priority: 3,
+        });
+      }
+    }
     const notes = deps.length ? phraseFrom(deps, nowSec) : idleFigure(routesHere);
-    this.playPhrase(notes);
+    this.playPhrase(notes, 0.45);
+  }
+
+  /**
+   * Picking a route out of the legend plays it, alone. Every route has its own
+   * instrument, and this is how you hear that — otherwise the only way to
+   * learn one is to wait for it to come round in the bed.
+   */
+  auditionRoute(routeId: string) {
+    const voice = this.voices.get(routeId);
+    if (!voice) return;
+    this.playPhrase(
+      [0, 2, 4].map((degree, i) => ({
+        routeId,
+        at: i * 0.42,
+        degree,
+        velocity: 0.62 - i * 0.06,
+      })),
+    );
   }
 
   /** Tapping a ferry: its own voice, running out the rest of the crossing. */
@@ -399,15 +534,16 @@ export class Music {
     );
   }
 
-  private playPhrase(notes: PhraseNote[]) {
+  private playPhrase(notes: PhraseNote[], delay = 0.05) {
     const { ctx, engine } = this;
     if (!ctx || !engine || !this.on || T.musicPhrase <= 0) return;
-    const t0 = ctx.currentTime + 0.05;
+    const t0 = ctx.currentTime + delay;
     for (const n of notes) {
       const voice = this.voices.get(n.routeId);
       if (!voice || !this.visible(n.routeId)) continue;
       engine.play({
         preset: voice.preset,
+        family: voice.family,
         freq: degreeToFreq(voice, n.degree),
         when: t0 + n.at,
         ring: T.musicRing,
