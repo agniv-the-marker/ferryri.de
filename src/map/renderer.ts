@@ -27,6 +27,8 @@ const SWELL_WAVES = [
   { lambda: 35, amp: 0.25, offsetDeg: 48 },
 ];
 const GRAVITY = 9.81;
+/** Widest viewport still treated as a phone — the CSS breakpoint, in css px. */
+const PHONE_MAX_W = 719;
 
 interface TopoMeta {
   x0: number;
@@ -620,7 +622,12 @@ export class Renderer {
     // modulates the dither — a shading depth, not a sea state — and letting it
     // drive the boats would mean retuning the water's contrast silently
     // restyled how a ferry rides it. `bobSwell` is the whole story.
-    const swellGain = T.bobSwell;
+    // Phones get a stiller sea: the breakpoint is the one the rest of the app
+    // calls a phone (src/ui/legend.ts, src/ui/board.ts), so a narrow window
+    // behaves like a narrow window everywhere rather than growing a second
+    // idea of what a small screen is. Read off the viewport that is already in
+    // hand — no matchMedia in a function called per hull per frame.
+    const swellGain = T.bobSwell * (w <= PHONE_MAX_W ? T.bobSwellPhone : 1);
     const sharp = T.swellSharp;
     const mean = this.crestMean(sharp);
     const wave = this.swellBuf;

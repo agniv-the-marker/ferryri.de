@@ -43,7 +43,11 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
 - `?bob=0` — stop boats riding the water (on by default). Same switch as the
   dev panel's "bob" group; the rest of that group tunes it. "hull length m" is
   the load-bearing one — it sets both which waves a boat answers and the
-  baseline its heel is measured over.
+  baseline its heel is measured over. **"swell share" is the idle sea**: the
+  tap ripples come off a separate field, so it is the only thing moving a hull
+  when nobody has touched the water, and "swell × on phone" trims it again
+  below 720 css px — the same breakpoint the UI calls a phone. Turning `lift`,
+  `rock` or `sway` down instead would flatten the tap response with it.
 
 ## Architecture
 
