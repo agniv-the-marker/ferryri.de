@@ -275,11 +275,18 @@ export function terminalBoard(
     // Every terminal has an instrument picked from what the place was, and
     // until now the only way to learn which was to wait for a wave to reach
     // it. Naming it makes the score readable; pressing it plays the place.
+    //
+    // The label says "instrument", not "voice": "voice" is what this codebase
+    // calls it, and a reader who has not read the codebase has no idea what a
+    // terminal's voice would be. The ▸ is the same one "all departures ▸"
+    // uses, so it reads as something to press.
     const line = el('button', 'sheet-voice');
-    line.append(document.createTextNode('voice · '));
+    line.append(document.createTextNode('instrument · '));
     const name = el('span', 'swatch-note', voice.name);
     line.append(name);
-    line.title = `Hear ${title}`;
+    line.append(document.createTextNode(' ▸'));
+    line.title = `Play ${title}`;
+    line.setAttribute('aria-label', `Play ${title} — ${voice.name}`);
     line.addEventListener('click', voice.play);
     root.append(line);
   }

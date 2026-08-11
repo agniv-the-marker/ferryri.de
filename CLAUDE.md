@@ -103,8 +103,10 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
 **The key names the instruments.** A colour tells you which line you are
 looking at and nothing tells you which line you are *hearing*, so each legend
 row carries its route's instrument (`voiceNames()` in `score.ts`, from the same
-`assignVoices` the music uses) and each terminal board carries its own —
-pressing that line plays the place, and starts the music if it was off. The
+`assignVoices` the music uses) and each terminal board carries its own, labelled
+**instrument** rather than *voice* — "voice" is this codebase's word for it and
+means nothing to a visitor. Pressing that line plays the place, and starts the
+music if it was off. The
 register is only printed when a family is dealt to more than one route, because
 "flute, mid" tells a reader nothing when there is only one flute.
 
