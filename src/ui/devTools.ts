@@ -13,7 +13,7 @@
 import type { ScheduleData } from '../lib/types';
 import type { Music } from '../audio/music';
 import { musicKick } from '../audio/music';
-import { T, setTunable } from '../lib/tunables';
+import { setTunable } from '../lib/tunables';
 
 interface Ctx {
   music: Music;
@@ -68,8 +68,10 @@ export function buildDevTools(ctx: Ctx): HTMLElement {
     b.title = title;
     b.addEventListener('click', () => {
       if (busy) return;
-      // the click is itself the gesture a browser wants before audio can start
-      if (!T.musicOn) setTunable('musicOn', true);
+      // the click is itself the gesture a browser wants before audio can
+      // start; `enabled` — not the tunable — is what says whether it already
+      // has, since the tunable can be on while the context is still suspended
+      if (!ctx.music.enabled) setTunable('musicOn', true);
       run();
     });
     row.append(b);

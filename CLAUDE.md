@@ -27,8 +27,13 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
 - `?sel=<stopId>` — open a terminal board on load (Ferry Building = 7201)
 - `?wt=<sec>` — freeze water animation at a fixed time
 - `?ripple` / `?ripplekick` — automatic ripples for tuning / headless testing
-- `?music` / `?music=0` — force the generative score on or off (off by default;
-  the footer's "music" button is the real control). `?musickick` renders a fixed
+- `?music` / `?music=0` — force the generative score on or off. It is **on by
+  default**, but no browser will autoplay, so it can only be *armed* at boot and
+  starts on whatever the visitor touches first; a remembered choice from a
+  previous visit beats the default, and `?music=` beats both. The footer's
+  "music" button is the real control — note that `T.musicOn` means *wanted* and
+  `music.enabled` means *sounding*, and only the second is safe to toggle
+  against. `?musickick` renders a fixed
   handful of notes through an OfflineAudioContext and reports peak/RMS/note
   counts in the tab title; `?wavekick` taps the bay and hand-steps the ripple
   sim, reporting how many hulls answered the wavefront — both exist because a
@@ -56,10 +61,12 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
   along GTFS shapes via `shape_dist_traveled`.
 - `src/ui/` — split-flap boards (flap.ts), bottom sheet / desktop right panel,
   on-map departure chips, legend (click = spotlight route), dev panel.
-- `src/audio/` — the bay as a generative score, off until the footer's "music"
-  button is pressed (browsers require the gesture). No samples and no library:
-  every voice is a sine whose identity is its envelope, rung out through a
-  procedurally generated 6 s reverb into a bus compressor and limiter. Vessels
+- `src/audio/` — the bay as a generative score, armed at boot and started by
+  the first gesture (browsers require one). No library: voices are recorded
+  instruments by default (`bank.ts`, 0.7 MB fetched only once music actually
+  starts) over a synthesised fallback whose identity is a harmonic spectrum and
+  an envelope, rung out through a procedurally generated reverb into a bus
+  compressor and limiter. Vessels
   underway sound on their own periods, a terminal tap plays its next departures
   as a phrase, and the ripple field triggers a hull as the wavefront reaches it
   (`renderer.rippleSampler()` — ripple only, since the swell would trip any
@@ -87,7 +94,7 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
 | `wave arrival` | how high the water must rise to count as "the wave got here". Peak under a hull is ~0.13, so 0.02 fires most things and 0.20 fires nothing |
 | `heel → pan` | how far a rolling boat pushes its note toward one ear |
 | `harbor` / `foghorn` | the room: wash, an idling engine, a bell buoy, and the horn |
-| `sampled voices` | recorded instruments instead of synthesised ones (`?voices=sf`) |
+| `sampled voices` | recorded instruments rather than synthesised ones — on by default; off is the pure-synth palette (`?voices=sf` forces on) |
 | `focus lift ×` / `others duck ×` | tapping a ferry brings it forward and pushes the rest back; the bus is made up so the mix keeps its level |
 
 Clicking a route in the legend **auditions it** — solos it and plays its
@@ -117,7 +124,13 @@ shipping downloaded audio nobody has listened to would be worse than shipping
 none. `bank.ts` is the alternate palette, one recorded instrument per family at
 four pitches with `playbackRate` between, sharing the score, the envelopes, the
 voice pool and the bus — so the only thing that changes is where the sound
-comes from. It is fetched only when someone switches to it.
+comes from. It is fetched only once music actually starts, never at page load.
+
+A vessel **brightens on the map while its note sounds** — `music.flash(tripId)`
+decays over ~0.9 s and `overlay.draw()` takes it as a fourth argument, lifting
+the hull's size, stroke and colour a little. It is what makes the fleet bed
+legible as the fleet rather than as weather; keep it subtle, since every boat
+underway sounds regularly and a hard flash would read as blinking.
 
 Two things worth knowing before changing this code. The wave field is flat far
 more than 99% of the time, so everything that reads it is gated behind a

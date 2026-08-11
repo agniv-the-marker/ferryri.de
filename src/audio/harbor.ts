@@ -114,8 +114,8 @@ export class Harbor {
     if (!this.running) return;
     const level = T.musicHarbor;
     const now = this.ctx.currentTime;
-    this.washGain?.gain.setTargetAtTime(level * 0.05, now, 1.5);
-    this.humGain?.gain.setTargetAtTime(level * this.activity * 0.05, now, 2);
+    this.washGain?.gain.setTargetAtTime(level * 0.035, now, 2.5);
+    this.humGain?.gain.setTargetAtTime(level * this.activity * 0.03, now, 3);
     if (level <= 0) return;
 
     if (now >= this.nextHorn) {
@@ -138,9 +138,11 @@ export class Harbor {
     const { ctx } = this;
     const env = ctx.createGain();
     env.gain.setValueAtTime(0, at);
-    env.gain.linearRampToValueAtTime(level * 0.16, at + 0.7);
-    env.gain.setValueAtTime(level * 0.16, at + 1.9);
-    env.gain.setTargetAtTime(0, at + 1.9, 0.6);
+    // a horn out in the fog arrives slowly and leaves slowly; the earlier
+    // shape had it snapping in and reading as a jab rather than as weather
+    env.gain.linearRampToValueAtTime(level * 0.1, at + 1.2);
+    env.gain.setValueAtTime(level * 0.1, at + 2.1);
+    env.gain.setTargetAtTime(0, at + 2.1, 0.9);
     const lp = ctx.createBiquadFilter();
     lp.type = 'lowpass';
     lp.frequency.value = 430;
@@ -164,8 +166,10 @@ export class Harbor {
     const { ctx } = this;
     const env = ctx.createGain();
     env.gain.setValueAtTime(0, at);
-    env.gain.linearRampToValueAtTime(level * 0.05, at + 0.004);
-    env.gain.setTargetAtTime(0, at + 0.004, 1.1);
+    // softened: struck in four milliseconds this read as a click across the
+    // whole mix, which is what "punchy" meant
+    env.gain.linearRampToValueAtTime(level * 0.03, at + 0.02);
+    env.gain.setTargetAtTime(0, at + 0.02, 1.3);
     const pan = ctx.createStereoPanner();
     pan.pan.value = Math.random() * 1.6 - 0.8;
     env.connect(pan);

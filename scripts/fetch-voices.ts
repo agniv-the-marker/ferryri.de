@@ -29,7 +29,7 @@ const INSTRUMENTS: Record<string, string> = {
   plucked: 'pizzicato_strings',
   glass: 'celesta',
   wood: 'marimba',
-  metal: 'steel_drums',
+  metal: 'vibraphone',
   hum: 'choir_aahs',
 };
 

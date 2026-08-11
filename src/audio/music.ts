@@ -56,6 +56,8 @@ const WAVE_REFRACTORY = 0.35;
 const LISTEN_WINDOW = 8;
 /** Points around a station's radius, so whichever side faces water is heard. */
 const STATION_RING = 8;
+/** How long a hull stays tinted after it sounds. */
+const FLASH_MS = 900;
 
 export interface FrameState {
   vessels: VesselState[];
@@ -85,6 +87,13 @@ export class Music {
   private listenUntil = 0;
   /** Trip id of the vessel brought forward in the mix, if any. */
   private focus: string | null = null;
+  /**
+   * When each vessel last sounded, on the wall clock — the overlay tints a
+   * hull for a moment as its note goes out, so you can see which boat you are
+   * hearing. Wall clock rather than context time because the overlay has no
+   * reason to know about the audio clock.
+   */
+  private flashes = new Map<string, number>();
   private snapshot: FrameState | null = null;
   /** next fleet-bed note per trip, in context time */
   private nextAt = new Map<string, number>();
@@ -158,12 +167,17 @@ export class Music {
     this.debugWavePeak = 0;
   }
 
-  /** Was music left on last visit? Restored, but never resumed without a gesture. */
-  static remembered(): boolean {
+  /**
+   * What was chosen last visit, or null if this visitor has never said. Null
+   * matters: it is the difference between "they turned it off" and "they have
+   * not been here", and only the first should override the default.
+   */
+  static rememberedChoice(): boolean | null {
     try {
-      return localStorage.getItem(STORAGE_KEY) === 'on';
+      const v = localStorage.getItem(STORAGE_KEY);
+      return v === null ? null : v === 'on';
     } catch {
-      return false;
+      return null;
     }
   }
 
@@ -260,6 +274,26 @@ export class Music {
     this.engine?.setFocused(tripId !== null);
   }
 
+  /**
+   * How brightly to tint a hull right now, 0..1 — a short decay from the
+   * moment its note began. Read every frame by the overlay, so it allocates
+   * nothing and takes a map lookup.
+   */
+  flashAt(tripId: string): number {
+    const at = this.flashes.get(tripId);
+    if (at === undefined) return 0;
+    const age = (performance.now() - at) / FLASH_MS;
+    return age >= 1 ? 0 : 1 - age;
+  }
+
+  private flash(tripId: string) {
+    this.flashes.set(tripId, performance.now());
+    if (this.flashes.size > 300) {
+      const cutoff = performance.now() - FLASH_MS;
+      for (const [id, at] of this.flashes) if (at < cutoff) this.flashes.delete(id);
+    }
+  }
+
   /** How loud a given vessel should be, given what is in focus. */
   private focusGain(tripId: string): number {
     if (this.focus === null) return 1;
@@ -323,7 +357,10 @@ export class Music {
           pan: this.panOf(v, state),
           detune: vesselDetune(v.trip.id),
           priority: 3,
-        })) this.debugWaveNotes++;
+        })) {
+          this.debugWaveNotes++;
+          this.flash(v.trip.id);
+        }
       }
     }
 
@@ -441,7 +478,7 @@ export class Music {
       this.nextAt.set(id, at + period);
       // docked boats are tied up, not sailing — they murmur
       const velocity = (v.docked ? 0.18 : 0.45) * bed * this.focusGain(id);
-      engine.play({
+      if (engine.play({
         preset: voice.preset,
         family: voice.family,
         freq: degreeToFreq(voice, this.degreeOf(v, snapshot.nowSec)),
@@ -450,7 +487,7 @@ export class Music {
         velocity,
         pan: this.panOf(v, snapshot),
         detune: this.detuneOf(v, snapshot) + vesselDetune(id),
-      });
+      })) this.flash(id);
     }
     if (this.nextAt.size > 400) this.nextAt.clear();
   }
@@ -523,6 +560,7 @@ export class Music {
   vesselRun(v: VesselState, nowSec: number) {
     const voice = this.voices.get(v.routeId);
     if (!voice) return;
+    this.flash(v.trip.id);
     const from = this.degreeOf(v, nowSec);
     this.playPhrase(
       [0, 1, 2].map((i) => ({
