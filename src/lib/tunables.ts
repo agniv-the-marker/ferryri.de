@@ -195,6 +195,10 @@ export const SPECS = {
 
   // ---- vessels & labels ----
   vesselSize: num('vessels', 'vessel size px', 13, 5, 20, 0.5),
+  // The terminal dot, which is also the thing you aim at to open a board —
+  // the touch target follows it, so making the mark bigger makes the tap
+  // easier rather than only making it louder.
+  stationSize: num('vessels', 'terminal dot px', 4.5, 2, 9, 0.25),
   dockLeadMin: num('vessels', 'dock lead (min)', 4, 0, 20, 1),
   routeAlpha: num('vessels', 'route line alpha', 0.3, 0, 0.6, 0.02),
   labelZoom: num('labels', 'labels fade-in z', 9, 9, 13, 0.1),
