@@ -345,11 +345,18 @@ body {
   border-left: 2px solid transparent;
   padding-left: 7px;
   min-height: 1.5rem;
-  width: max-content;
+  /* Fit the panel rather than run off the end of it. At a large text scale a
+     full row is half again wider than the sheet, and everything past the
+     destination — the time on a phone, the gate at the Ferry Building — sat
+     off-screen behind a sideways scroll nobody would think to try. The cells
+     give up width instead; the glyph inside is 0.68rem, so there is room to
+     lose before anything is clipped. */
+  width: 100%;
 }
 .flap-gap { width: 0.45rem; flex: none; }
 .flap-cell {
-  flex: none;
+  flex: 0 1 0.92rem;
+  min-width: 0;
   width: 0.92rem;
   height: 1.35rem;
   position: relative;

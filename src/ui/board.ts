@@ -294,21 +294,20 @@ export function terminalBoard(
 
   const initialRoutes = routesAt(ctx, terminal);
   const initialOperators = new Set(initialRoutes.map((r) => r.operator));
-  const showOperatorColumn = initialOperators.size > 1;
+  // Only the Ferry Building has gates, and there the gate is the one thing you
+  // actually need off this board — it is which end of the building to walk to.
+  // The operator column is what a real board would not print at all, so where
+  // there is a gate to show, the gate gets the room.
+  const showGate = isFB && !isGate;
+  const showOperatorColumn = initialOperators.size > 1 && !showGate;
 
-  // destination | departs | (gate at the Ferry Building)
-  const columns = isFB && !isGate
-    ? [
-        { width: 13, align: 'left' as const },
-        { width: 6, align: 'right' as const },
-        ...(showOperatorColumn ? [{ width: 5, align: 'left' as const }] : []),
-        { width: 1, align: 'right' as const },
-      ]
-    : [
-        { width: 13, align: 'left' as const },
-        { width: 6, align: 'right' as const },
-        ...(showOperatorColumn ? [{ width: 5, align: 'left' as const }] : []),
-      ];
+  // destination | departs | gate (at the Ferry Building) or operator
+  const columns = [
+    { width: 13, align: 'left' as const },
+    { width: 6, align: 'right' as const },
+    ...(showOperatorColumn ? [{ width: 5, align: 'left' as const }] : []),
+    ...(showGate ? [{ width: 1, align: 'right' as const }] : []),
+  ];
   // two swappable views: the flap board, and the full-day planner
   const mainView = el('div');
   root.append(mainView);
@@ -376,7 +375,7 @@ export function terminalBoard(
           const gate = c.terminalById.get(d.stop)?.gate ?? '';
           const cols = [destLabel(c, d.destStop), flapTime(d.dep)];
           if (showOperatorColumn) cols.push(route ? c.operatorById.get(route.operator)?.short ?? '' : '');
-          if (isFB && !isGate) cols.push(gate);
+          if (showGate) cols.push(gate);
           return { cols, accent: route?.accent };
         }),
       );
