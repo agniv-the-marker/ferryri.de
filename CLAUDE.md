@@ -81,8 +81,19 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
 | `fleet level` / `phrase level` | loudness of the fleet bed / a terminal's departures |
 | `ripple bell` | the note the tap itself makes |
 | `ripple → hulls` / `→ stations` / `→ routes` | what answers the passing wavefront |
+| `station reach m` | how far offshore a terminal listens — metres, because a dock sampled at the dock never hears anything |
 | `wave arrival` | how high the water must rise to count as "the wave got here". Peak under a hull is ~0.13, so 0.02 fires most things and 0.20 fires nothing |
 | `heel → pan` | how far a rolling boat pushes its note toward one ear |
+
+Every route and every station has its **own instrument**, not just its own
+pitch. `src/audio/voices.ts` holds nine families whose identity is a harmonic
+spectrum (`createPeriodicWave`), an optional inharmonic partial — 2.76× is what
+makes a bell sound like metal — a filter that closes as the note rings, and a
+noise onset. `assignVoices` deals families × registers so no two routes collide,
+and `STATION_VOICE` in `score.ts` assigns each terminal by hand from what the
+place *was*: the Ferry Building is a bell for its clock tower, Mare Island is
+struck metal for the shipyard, Angel Island is wood for the immigration
+barracks. Clicking one route in the legend solos it outright.
 
 Two things worth knowing before changing this code. The wave field is flat far
 more than 99% of the time, so everything that reads it is gated behind a

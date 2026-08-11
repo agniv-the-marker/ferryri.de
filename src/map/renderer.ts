@@ -77,6 +77,7 @@ uniform vec4 uSwell[4];    // per wave: dir.x*k, dir.y*k (world), omega, phase
 uniform float uSwellAmp[4];// per-wave weights, pre-normalized to sum 1
 uniform vec4 uSwellB;      // amplitude, crest sharpness, zoom fade, crest mean
 uniform float uSwellCalm;  // how much the swell lies down near shore
+uniform float uWaterFlat;  // 1 = full mottling, <1 flattens the open water
 
 // ---- Bayer 4×4 ordered dither ----
 float bayer4(vec2 p) {
@@ -156,6 +157,9 @@ void main() {
   float n1 = (1.0 - fine) * vnoiseWorld(cellWorld, f0 * 2.0, drift)
            + fine * vnoiseWorld(cellWorld, f0 * 6.0, -drift.yx * 1.7);
   float n = mix(n0, n1, lfrac);
+  // Pull the mottling toward flat at wide zooms — applied here, before the
+  // swell and the tap ripples, so those keep their full strength.
+  n = mix(0.5, n, uWaterFlat);
 
   // ---- directional swell: sum of sharpened Gerstner-style crests ----
   // Each wave carries its own wavelength and a real deep-water angular speed
@@ -369,7 +373,7 @@ export class Renderer {
       'uPaper', 'uInk', 'uWaterLo', 'uWaterMid', 'uWaterHi', 'uLevels',
       'uShoreWave', 'uWaterParams', 'uTopoParams',
       'uWave', 'uWaveAmp', 'uLod', 'uLandParams', 'uShoreFade', 'uMaskBlur',
-      'uSwell[0]', 'uSwellAmp[0]', 'uSwellB', 'uSwellCalm',
+      'uSwell[0]', 'uSwellAmp[0]', 'uSwellB', 'uSwellCalm', 'uWaterFlat',
     ])
       this.u[name] = gl.getUniformLocation(program, name);
 
@@ -757,7 +761,18 @@ export class Renderer {
       this.swellBuf[i * 4 + 1] = dy * kWorld;
       this.swellBuf[i * 4 + 2] = omega;
       this.swellBuf[i * 4 + 3] = phase;
-      this.swellAmps[i] = wv.amp / totalAmp;
+      // Zoomed out, a wave whose crests are a pixel apart is not a wave — it
+      // is aliasing, and it draws as speckle. The shader already fades the
+      // swell out when you zoom *in*, because it reads as screen-space pattern
+      // at dock zoom; this is the mirror of that, per component, so the long
+      // primary swell survives a zoom-out and the chop bows out before it can
+      // break up. At the whole-bay view every component is under 1.5 px.
+      const lambdaPx = (lambdaM / mpwu) * cam.scale;
+      const floorPx = T.swellMinPx;
+      const seen = floorPx <= 0
+        ? 1
+        : Math.max(0, Math.min(1, (lambdaPx - floorPx) / floorPx));
+      this.swellAmps[i] = (wv.amp * seen * seen * (3 - 2 * seen)) / totalAmp;
       // A hull answers waves long compared to itself and bridges the rest —
       // 35 m chop slaps a 50 m ferry, it doesn't lift it. Weighting the bob
       // this way is what keeps boats from shivering on the short components,
@@ -914,6 +929,12 @@ export class Renderer {
     gl.uniform3f(this.u.uWaterMid ?? null, ...cssColor('--water-mid'));
     gl.uniform3f(this.u.uWaterHi ?? null, ...cssColor('--water-hi'));
     gl.uniform2f(this.u.uLevels ?? null, T.waterLevels, T.landLevels);
+    // the whole-bay view sits around z 9.6; by z 12 the mottling is all back
+    const zc = Math.max(0, Math.min(1, (cam.cur.z - 9.6) / 2.4));
+    gl.uniform1f(
+      this.u.uWaterFlat ?? null,
+      1 - T.waterCalmOut * (1 - zc * zc * (3 - 2 * zc)),
+    );
     gl.uniform3f(
       this.u.uShoreWave ?? null,
       T.shoreWaveAmp, T.shoreWaveFreq, T.shoreWaveSpeed,

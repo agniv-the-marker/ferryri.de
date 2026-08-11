@@ -17,8 +17,20 @@
 import { T } from '../lib/tunables';
 
 export interface VoicePreset {
-  /** a triangle behind a low corner reads as reed; sine is the plain tone */
-  wave: OscillatorType;
+  /**
+   * Harmonic amplitudes, index 0 being the fundamental. This is what makes an
+   * instrument an instrument: odd harmonics read as a reed, a lone fundamental
+   * as a pipe, the full series as a bowed string.
+   */
+  partials: number[];
+  /**
+   * An extra partial at a non-integer ratio of the fundamental, [ratio, level].
+   * Nothing else turns a tone into struck metal — 2.76× is bell, 3.9× is the
+   * bar of a marimba.
+   */
+  inharmonic?: [number, number];
+  /** Noise on the onset, [level, seconds]: breath for a pipe, a mallet click. */
+  chiff?: [number, number];
   /** seconds to reach full level */
   attack: number;
   /** seconds of fall toward `sustain` */
@@ -27,8 +39,10 @@ export interface VoicePreset {
   sustain: number;
   /** seconds of tail once the note is released */
   release: number;
-  /** lowpass corner in Hz — how far back in the room the voice sits */
+  /** lowpass corner in Hz at the onset */
   cutoff: number;
+  /** where that corner settles as the note rings; most of struck-vs-bowed */
+  cutoffEnd?: number;
   /** level trim, 0..1 */
   gain: number;
 }
@@ -90,6 +104,7 @@ function impulse(ctx: BaseAudioContext, seconds: number): AudioBuffer {
 }
 
 export class Engine {
+
   private master: GainNode;
   private wet: GainNode;
   private reverb: ConvolverNode;
@@ -99,6 +114,9 @@ export class Engine {
   debugDropped = 0;
   private drone: OscillatorNode[] = [];
   private droneGain: GainNode | null = null;
+  /** One PeriodicWave per preset, built on first use and kept. */
+  private waves = new Map<VoicePreset, PeriodicWave>();
+  private noise: AudioBuffer | null = null;
 
   constructor(private ctx: BaseAudioContext, destination?: AudioNode) {
     // limiter first: high ratio, fast attack, so it only ever catches peaks
@@ -134,6 +152,31 @@ export class Engine {
     this.master.connect(this.reverb);
     this.reverb.connect(this.wet);
     this.wet.connect(comp);
+  }
+
+  /** The preset's harmonic series, as a wave the oscillator can play. */
+  private waveFor(p: VoicePreset): PeriodicWave {
+    let w = this.waves.get(p);
+    if (!w) {
+      // index 0 of a PeriodicWave is DC, so the partials shift up by one
+      const real = new Float32Array(p.partials.length + 1);
+      const imag = new Float32Array(p.partials.length + 1);
+      for (let i = 0; i < p.partials.length; i++) imag[i + 1] = p.partials[i]!;
+      w = this.ctx.createPeriodicWave(real, imag, { disableNormalization: false });
+      this.waves.set(p, w);
+    }
+    return w;
+  }
+
+  /** One second of noise, shared by every onset that wants breath or a click. */
+  private noiseBuffer(): AudioBuffer {
+    if (!this.noise) {
+      const len = Math.floor(this.ctx.sampleRate);
+      this.noise = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+      const d = this.noise.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    }
+    return this.noise;
   }
 
   /** Live-tunable levels, pushed on every dev-panel change. */
@@ -216,7 +259,13 @@ export class Engine {
 
     const lp = ctx.createBiquadFilter();
     lp.type = 'lowpass';
-    lp.frequency.value = p.cutoff;
+    // The corner closes as the note rings. A bell is bright for an instant and
+    // dark for the rest of its life; a bowed note barely moves. This is most of
+    // what the ear uses to tell one from the other.
+    lp.frequency.setValueAtTime(p.cutoff, t);
+    if (p.cutoffEnd !== undefined && p.cutoffEnd !== p.cutoff) {
+      lp.frequency.setTargetAtTime(p.cutoffEnd, t, Math.max(0.05, p.decay / 3));
+    }
 
     const pan = ctx.createStereoPanner();
     pan.pan.value = Math.max(-1, Math.min(1, n.pan ?? 0));
@@ -225,9 +274,10 @@ export class Engine {
     // itself instead of sitting dead still.
     const spread = T.musicBeat / 2;
     const glide = T.musicGlide;
+    const wave = this.waveFor(p);
     const oscs = [-1, 1].map((side) => {
       const osc = ctx.createOscillator();
-      osc.type = p.wave;
+      osc.setPeriodicWave(wave);
       osc.detune.value = (n.detune ?? 0) + side * spread;
       if (glide > 0.005) {
         // slide up into pitch — a siren, in both senses
@@ -240,9 +290,43 @@ export class Engine {
       return osc;
     });
 
+    // A partial at a ratio no harmonic series contains — the difference
+    // between a struck tone and struck metal.
+    if (p.inharmonic) {
+      const [ratio, level] = p.inharmonic;
+      const extra = ctx.createOscillator();
+      extra.frequency.value = n.freq * ratio;
+      const g = ctx.createGain();
+      g.gain.value = level;
+      extra.connect(g);
+      g.connect(env);
+      oscs.push(extra);
+    }
+
     env.connect(lp);
     lp.connect(pan);
     pan.connect(this.master);
+
+    // Breath, or the knock of a mallet: a short noise burst filtered around the
+    // note, which is how an onset stops sounding synthetic.
+    if (p.chiff) {
+      const [level, secs] = p.chiff;
+      const src = ctx.createBufferSource();
+      src.buffer = this.noiseBuffer();
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = Math.min(8000, n.freq * 3);
+      bp.Q.value = 1.2;
+      const ng = ctx.createGain();
+      ng.gain.setValueAtTime(0, t);
+      ng.gain.linearRampToValueAtTime(peak * level, t + Math.min(0.02, secs / 2));
+      ng.gain.setTargetAtTime(0, t + Math.min(0.02, secs / 2), Math.max(0.01, secs / 3));
+      src.connect(bp);
+      bp.connect(ng);
+      ng.connect(lp);
+      src.start(t);
+      src.stop(t + secs + 0.2);
+    }
 
     const releaseAt = t + Math.max(0.05, n.ring);
     env.gain.setTargetAtTime(0, releaseAt, Math.max(0.02, p.release / 3));
