@@ -11,7 +11,7 @@
 import type { Departure } from '../sim/schedule';
 import type { Route, ScheduleData, Terminal } from '../lib/types';
 import { project, type WorldPt } from '../map/proj';
-import { FAMILIES, FAMILY_ORDER, type FamilyName } from './voices';
+import { FAMILIES, FAMILY_ORDER, INSTRUMENT_NAME, type FamilyName } from './voices';
 import type { VoicePreset } from './engine';
 
 /**
@@ -91,6 +91,38 @@ export function assignVoices(routes: Route[]): Map<string, RouteVoice> {
     taken.add(`${name}${octave}`);
     out.set(r.id, { preset: FAMILIES[name], octave, family: name });
   });
+  return out;
+}
+
+/**
+ * What to call each route's voice, in words rather than in code.
+ *
+ * `assignVoices` guarantees no two routes share a family *and* a register, so
+ * the family name alone is ambiguous exactly when a family is dealt twice —
+ * and only then is the register worth printing. Two routes on the cello read
+ * "cello, low" and "cello, high"; a route with the flute to itself is just
+ * "flute", because "flute, mid" tells a reader nothing they can use.
+ */
+export function voiceNames(routes: Route[]): Map<string, string> {
+  const voices = assignVoices(routes);
+  const byFamily = new Map<FamilyName, string[]>();
+  for (const [routeId, voice] of voices) {
+    if (!voice.family) continue;
+    const list = byFamily.get(voice.family) ?? [];
+    list.push(routeId);
+    byFamily.set(voice.family, list);
+  }
+  const out = new Map<string, string>();
+  for (const [family, ids] of byFamily) {
+    const name = INSTRUMENT_NAME[family];
+    if (ids.length === 1) {
+      out.set(ids[0]!, name);
+      continue;
+    }
+    const sorted = [...ids].sort((a, b) => voices.get(a)!.octave - voices.get(b)!.octave);
+    const words = sorted.length === 2 ? ['low', 'high'] : ['low', 'mid', 'high', 'highest'];
+    sorted.forEach((id, i) => out.set(id, `${name}, ${words[Math.min(i, words.length - 1)]}`));
+  }
   return out;
 }
 
@@ -224,6 +256,11 @@ const STATION_VOICE: Record<string, [FamilyName, number]> = {
 export function stationVoice(id: string): RouteVoice {
   const [name, octave] = STATION_VOICE[id] ?? ['pipe', 1];
   return { preset: FAMILIES[name], octave, family: name };
+}
+
+/** What a terminal's voice is called, for printing next to the place. */
+export function stationVoiceName(id: string): string {
+  return INSTRUMENT_NAME[stationVoice(id).family ?? 'pipe'];
 }
 
 /**
