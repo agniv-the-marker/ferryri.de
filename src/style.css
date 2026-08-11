@@ -345,19 +345,20 @@ body {
   border-left: 2px solid transparent;
   padding-left: 7px;
   min-height: 1.5rem;
-  /* Fit the panel rather than run off the end of it. At a large text scale a
-     full row is half again wider than the sheet, and everything past the
-     destination — the time on a phone, the gate at the Ferry Building — sat
-     off-screen behind a sideways scroll nobody would think to try. The cells
-     give up width instead; the glyph inside is 0.68rem, so there is room to
-     lose before anything is clipped. */
-  width: 100%;
+  /* On a phone the board stays full size and runs off the edge: swiping it
+     sideways is an ordinary thing to do there, and full-size flaps are worth
+     more than seeing every column at once. */
+  width: max-content;
 }
 .flap-gap { width: 0.45rem; flex: none; }
 .flap-cell {
   flex: 0 1 0.92rem;
   min-width: 0;
   width: 0.92rem;
+  /* see .flap-row: the cells only give up width where the row is asked to fit,
+     which is the desktop panel — there is no swipe there, and a full row is
+     half again wider than the panel at a large text scale, so the gate sat
+     off the end where nothing could reach it */
   height: 1.35rem;
   position: relative;
   background: #f0f1ef;
@@ -733,6 +734,8 @@ body {
   #sheet-body { padding-top: 1.4rem; }
   /* the station name lives on the map instead of inside the panel */
   #sheet .sheet-title { display: none; }
+  /* no sideways swipe on a desktop, so the board fits the panel instead */
+  .flap-row { width: 100%; }
   #station-name:not([hidden]) { display: block; }
   /* desktop: the key is expanded whenever no detail panel is open */
   #legend { bottom: calc(1rem + var(--safe-bottom)); }
