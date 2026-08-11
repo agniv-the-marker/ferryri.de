@@ -265,6 +265,23 @@ body {
   font-weight: 500;
   line-height: 1.25;
 }
+/* what the place sounds like, under its name on the board */
+.sheet-voice {
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+  margin-top: 0.2rem;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.sheet-voice:hover { color: var(--text-secondary); }
+.sheet-voice .swatch-note { text-decoration: underline; text-underline-offset: 2px; }
+
 .sheet-sub {
   font-family: var(--mono);
   font-size: 0.6rem;
@@ -471,6 +488,35 @@ body {
 }
 #legend-list .route-row { padding-left: 0.55rem; }
 #legend-list .route-row.singleton { padding-left: 0; color: var(--text-secondary); }
+/* the instrument this route plays — quieter than the route's own name, since
+   it is a second reading of the same row rather than a competing one */
+#legend-list .voice {
+  color: var(--text-tertiary);
+  font-size: 0.5rem;
+  letter-spacing: 0.01em;
+  flex: none;
+  order: 1;
+}
+#legend-list .voice::before { content: '· '; }
+/* on a phone the route names already wrap; the instrument gets its own line
+   rather than squeezing in beside a name broken over two */
+@media (max-width: 719px) {
+  #legend-list .route-row { flex-wrap: wrap; }
+  #legend-list .voice {
+    order: 3;
+    flex-basis: 100%;
+    text-align: right;
+    margin-top: -0.05rem;
+  }
+  #legend-list .voice::before { content: ''; }
+  /* each row is two lines now, so the key needs room and a way to reach the
+     bottom of it — it was clipped at a fixed height with the overflow hidden */
+  #legend.open #legend-list {
+    max-height: min(18rem, 42vh);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
 #legend-list .swatch {
   width: 0.9rem;
   height: 3px;
