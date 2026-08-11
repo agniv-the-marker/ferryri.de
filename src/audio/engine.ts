@@ -39,10 +39,20 @@ export interface VoicePreset {
   sustain: number;
   /** seconds of tail once the note is released */
   release: number;
-  /** lowpass corner in Hz at the onset */
-  cutoff: number;
-  /** where that corner settles as the note rings; most of struck-vs-bowed */
-  cutoffEnd?: number;
+  /**
+   * How many harmonics survive at the onset, and where that settles as the
+   * note rings. In harmonics of the note, not hertz: a corner fixed in hertz
+   * keeps eight harmonics of a low note and none of a high one, so a voice
+   * would change character every time it changed register.
+   */
+  bright: number;
+  brightEnd?: number;
+  /**
+   * How much of the global glide this family takes. Struck things are 0 —
+   * a bell does not slide into tune, and when everything slid, everything
+   * sounded alike.
+   */
+  glide?: number;
   /** level trim, 0..1 */
   gain: number;
 }
@@ -76,11 +86,14 @@ export interface Note {
  */
 const MAX_VOICES = 20;
 /**
- * Reverb length. Measured against a dry mix of the same voices: six seconds of
- * convolution costs 1.7× dry, two seconds 1.1×. Four is the compromise — still
- * a big room, with the headroom back.
+ * Reverb length. Four seconds of tail took over an eighth of a second to build,
+ * which is longer than most of these attacks last — measured, four families
+ * peaked at 1.14 s regardless of whether their attack was 8 ms or 1.1 s,
+ * because what peaked was the room and not the instrument. A shorter room
+ * lets an attack be heard, which is where the ear identifies an instrument.
+ * (Cost, measured: 6 s of convolution is 1.7× a dry mix, 2 s is 1.1×.)
  */
-const REVERB_SECONDS = 4;
+const REVERB_SECONDS = 2.2;
 /** The drone is meant to be felt more than heard, so its tunable starts quiet. */
 const DRONE_TRIM = 0.08;
 
@@ -262,9 +275,11 @@ export class Engine {
     // The corner closes as the note rings. A bell is bright for an instant and
     // dark for the rest of its life; a bowed note barely moves. This is most of
     // what the ear uses to tell one from the other.
-    lp.frequency.setValueAtTime(p.cutoff, t);
-    if (p.cutoffEnd !== undefined && p.cutoffEnd !== p.cutoff) {
-      lp.frequency.setTargetAtTime(p.cutoffEnd, t, Math.max(0.05, p.decay / 3));
+    const corner = (harmonics: number) =>
+      Math.max(180, Math.min(14000, harmonics * n.freq));
+    lp.frequency.setValueAtTime(corner(p.bright), t);
+    if (p.brightEnd !== undefined && p.brightEnd !== p.bright) {
+      lp.frequency.setTargetAtTime(corner(p.brightEnd), t, Math.max(0.05, p.decay / 3));
     }
 
     const pan = ctx.createStereoPanner();
@@ -273,7 +288,7 @@ export class Engine {
     // Two oscillators, split by `beat cents`, so the note breathes against
     // itself instead of sitting dead still.
     const spread = T.musicBeat / 2;
-    const glide = T.musicGlide;
+    const glide = T.musicGlide * (p.glide ?? 1);
     const wave = this.waveFor(p);
     const oscs = [-1, 1].map((side) => {
       const osc = ctx.createOscillator();
