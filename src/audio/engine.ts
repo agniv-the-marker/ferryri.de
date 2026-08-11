@@ -207,10 +207,37 @@ export class Engine {
     return this.noise;
   }
 
+  /**
+   * Make-up gain while one voice is in focus. Ducking everything else would
+   * otherwise just make the whole map quieter; this puts the level back so the
+   * focused boat is heard *more*, not everything else less.
+   */
+  private focused = false;
+
+  setFocused(focused: boolean) {
+    this.focused = focused;
+  }
+
+  /**
+   * Make-up for the focus duck. Voices that are not in step add in *power*,
+   * not amplitude, so this is the inverse of the power ratio and not of the
+   * duck — using the duck directly made a focused mix 54% louder instead of
+   * level. It reads the number of voices actually sounding rather than
+   * assuming one, because with three boats up the focused one already
+   * dominates and needs almost no help, while with ten it needs real make-up.
+   */
+  private get makeup(): number {
+    if (!this.focused) return 1;
+    const n = Math.max(3, Math.min(10, this.live.length || 3));
+    const lift = T.musicFocus;
+    const duck = T.musicFocusDuck;
+    return Math.min(1.6, Math.sqrt(n / Math.max(0.01, lift * lift + (n - 1) * duck * duck)));
+  }
+
   /** Live-tunable levels, pushed on every dev-panel change. */
   sync() {
     const t = this.ctx.currentTime;
-    this.master.gain.setTargetAtTime(T.musicGain, t, 0.05);
+    this.master.gain.setTargetAtTime(T.musicGain * this.makeup, t, 0.35);
     this.wet.gain.setTargetAtTime(T.musicReverb, t, 0.05);
     if (this.droneGain) {
       this.droneGain.gain.setTargetAtTime(T.musicDrone * DRONE_TRIM, t, 0.4);

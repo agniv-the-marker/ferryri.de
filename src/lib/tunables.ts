@@ -161,6 +161,11 @@ export const SPECS = {
   // same envelopes, a different palette. ~0.7 MB, fetched only when switched
   // on. `?voices=sf` picks it at boot so the two can be compared on a reload.
   musicSampled: bool('music', 'sampled voices', false),
+  // Tapping a ferry brings it forward and pushes the rest back, with a
+  // make-up on the bus so the mix does not get quieter — you hear *more* of
+  // that boat, not less of everything.
+  musicFocus: num('music', 'focus lift ×', 1.9, 1, 4, 0.1),
+  musicFocusDuck: num('music', 'others duck ×', 0.35, 0, 1, 0.05),
 
   // ---- camera ----
   camStiffness: num('camera', 'damping stiffness', 12.5, 2, 20, 0.5),

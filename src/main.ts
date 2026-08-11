@@ -11,6 +11,7 @@ import { now as simNow, localTime } from './lib/clock';
 import { departuresFrom, tripsForDay, type TimedTrip } from './sim/schedule';
 import { vesselsAt } from './sim/vessels';
 import { initDevPanel } from './ui/devPanel';
+import { buildDevTools } from './ui/devTools';
 import { initAbout } from './ui/about';
 import { initLegend } from './ui/legend';
 import { Sheet } from './ui/sheet';
@@ -226,6 +227,7 @@ async function boot() {
   });
 
   sheet.onClose = () => {
+    music.setFocus(null);
     overlay.selected = null;
     currentBoard = null;
     selectedVesselTrip = null;
@@ -345,6 +347,7 @@ async function boot() {
       currentBoard = vesselCard(boardCtx(), v);
       sheet.open(currentBoard.el, 'half');
       music.vesselRun(v, currentSec);
+      music.setFocus(v.trip.id); // this boat comes forward until you close it
       setStationName(routeById.get(v.routeId)?.name ?? 'Ferry');
     } else {
       // empty map: ripple on water, close whatever is open
@@ -450,7 +453,19 @@ async function boot() {
     }
   }
 
-  initDevPanel(schedule);
+  initDevPanel(schedule, () =>
+    buildDevTools({
+      music,
+      data: schedule,
+      tapBay: () => {
+        const { w, h } = camera.viewport;
+        if (!renderer.isLand(w / 2, h / 2)) {
+          renderer.addRipple(w / 2, h / 2);
+          music.tapped();
+        }
+      },
+    }),
+  );
   initAbout();
   // the legend and the planner's dropdown are two faces of one filter
   syncLegend = initLegend(schedule, setRouteFilter);

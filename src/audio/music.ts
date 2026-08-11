@@ -23,7 +23,7 @@ import { routeVisible } from '../lib/visibility';
 import { Engine } from './engine';
 import { Harbor } from './harbor';
 import { Bank } from './bank';
-import { TAP } from './voices';
+import { FAMILIES, TAP, type FamilyName } from './voices';
 import {
   DRONE_FREQS,
   assignVoices,
@@ -83,6 +83,8 @@ export class Music {
   private tapVoice: RouteVoice = { preset: TAP, octave: 1 };
   /** Context time after which the water is assumed flat again. */
   private listenUntil = 0;
+  /** Trip id of the vessel brought forward in the mix, if any. */
+  private focus: string | null = null;
   private snapshot: FrameState | null = null;
   /** next fleet-bed note per trip, in context time */
   private nextAt = new Map<string, number>();
@@ -109,6 +111,51 @@ export class Music {
     // projected once at boot, not per frame
     this.posts = listeningPosts(data);
     this.stations = stationPosts(data.terminals);
+  }
+
+  /**
+   * Play one family, one route or one station on demand, so the dev panel can
+   * walk you through the palette instead of you waiting for the bay to happen
+   * to sound them.
+   */
+  audition(kind: 'family' | 'route' | 'station', id: string): string {
+    const { ctx, engine } = this;
+    if (!ctx || !engine) return 'music is off';
+    let voice: RouteVoice | undefined;
+    let degree = 2;
+    if (kind === 'family') {
+      const preset = FAMILIES[id as FamilyName];
+      if (preset) voice = { preset, octave: 2, family: id as FamilyName };
+    } else if (kind === 'route') {
+      voice = this.voices.get(id);
+    } else {
+      const st = this.stations.find((x) => x.id === id);
+      if (st) { voice = st.voice; degree = st.degree; }
+    }
+    if (!voice) return `no voice for ${id}`;
+    engine.play({
+      preset: voice.preset,
+      family: voice.family,
+      freq: degreeToFreq(voice, degree),
+      when: ctx.currentTime + 0.02,
+      ring: Math.min(T.musicRing, 2.4),
+      velocity: 0.75,
+      priority: 3,
+    });
+    return `${voice.family} · register ${voice.octave} · ${degreeToFreq(voice, degree).toFixed(0)} Hz`;
+  }
+
+  /** Names the dev panel can walk through. */
+  get families(): string[] {
+    return Object.keys(FAMILIES);
+  }
+
+  /** What answered the last wave — reset each time the bay is tapped. */
+  resetCounts() {
+    this.debugWaveNotes = 0;
+    this.debugStationNotes = 0;
+    this.debugLineNotes = 0;
+    this.debugWavePeak = 0;
   }
 
   /** Was music left on last visit? Restored, but never resumed without a gesture. */
@@ -203,6 +250,22 @@ export class Music {
     return this.on && !!this.ctx && this.ctx.currentTime <= this.listenUntil;
   }
 
+  /**
+   * Bring one vessel forward. Everything else steps back and the bus is made
+   * up to match, so the mix keeps its level and that boat simply becomes the
+   * thing you can hear in it.
+   */
+  setFocus(tripId: string | null) {
+    this.focus = tripId;
+    this.engine?.setFocused(tripId !== null);
+  }
+
+  /** How loud a given vessel should be, given what is in focus. */
+  private focusGain(tripId: string): number {
+    if (this.focus === null) return 1;
+    return this.focus === tripId ? T.musicFocus : T.musicFocusDuck;
+  }
+
   /** Called every rAF; cheap by design — it only leaves state behind. */
   frame(state: FrameState) {
     this.snapshot = state;
@@ -256,7 +319,7 @@ export class Music {
           freq: degreeToFreq(voice, this.degreeOf(v, state.nowSec)),
           when: now + 0.02,
           ring: T.musicRing * 0.35,
-          velocity: Math.min(1, 0.55 + height * 2) * hulls,
+          velocity: Math.min(1, 0.55 + height * 2) * hulls * this.focusGain(v.trip.id),
           pan: this.panOf(v, state),
           detune: vesselDetune(v.trip.id),
           priority: 3,
@@ -374,10 +437,10 @@ export class Music {
         continue;
       }
       if (at > horizon) continue;
-      const period = periodFor(id, T.musicDensity);
+      const period = periodFor(id, T.musicDensity * (this.focus === id ? 2.2 : 1));
       this.nextAt.set(id, at + period);
       // docked boats are tied up, not sailing — they murmur
-      const velocity = (v.docked ? 0.18 : 0.45) * bed;
+      const velocity = (v.docked ? 0.18 : 0.45) * bed * this.focusGain(id);
       engine.play({
         preset: voice.preset,
         family: voice.family,

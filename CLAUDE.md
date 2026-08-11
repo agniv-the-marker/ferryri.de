@@ -88,6 +88,7 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
 | `heel → pan` | how far a rolling boat pushes its note toward one ear |
 | `harbor` / `foghorn` | the room: wash, an idling engine, a bell buoy, and the horn |
 | `sampled voices` | recorded instruments instead of synthesised ones (`?voices=sf`) |
+| `focus lift ×` / `others duck ×` | tapping a ferry brings it forward and pushes the rest back; the bus is made up so the mix keeps its level |
 
 Clicking a route in the legend **auditions it** — solos it and plays its
 instrument — because otherwise the only way to learn a route's voice is to wait
@@ -124,6 +125,23 @@ listening window opened by `music.tapped()` — the per-frame sampling (and the
 GPU readback feeding it) was the map's stutter. And terminals stand on the
 shore, where the sim pins the field flat so waves reflect; a station listens on
 a small ring offshore or it never hears anything.
+
+## The listening bench (dev panel, `listen` group)
+
+`src/ui/devTools.ts`. The same checks the headless `?kick` params run, with
+buttons on them, reporting into the panel instead of the tab title:
+
+| button | what it does |
+| --- | --- |
+| `instruments` | plays all nine synth families in turn at one pitch — the fastest way to hear whether they differ |
+| `routes` | plays every route's voice, in legend order |
+| `stations` | plays every terminal's voice |
+| `tap the bay` | drops a ripple at the view centre and counts what answers as the wavefront spreads |
+| `render check` | renders a fixed handful of notes offline and reports the level, no speaker needed |
+
+The audition buttons exist because a route's instrument is otherwise only heard
+when the bay happens to sound it, which can be minutes — there was no way to
+answer "do these actually differ?" except by waiting.
 
 ## Verifying schedule accuracy
 
