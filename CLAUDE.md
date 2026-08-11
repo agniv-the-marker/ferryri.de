@@ -100,15 +100,14 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
 | `music` is off by default | nothing sounds until the footer button is pressed; a remembered "on" only *arms* it for the next gesture |
 | `focus lift ×` / `others duck ×` | tapping a ferry brings it forward and pushes the rest back; the bus is made up so the mix keeps its level |
 
-**The key names the instruments.** A colour tells you which line you are
-looking at and nothing tells you which line you are *hearing*, so each legend
-row carries its route's instrument (`voiceNames()` in `score.ts`, from the same
-`assignVoices` the music uses) and each terminal board carries its own, labelled
-**instrument** rather than *voice* — "voice" is this codebase's word for it and
-means nothing to a visitor. Pressing that line plays the place, and starts the
-music if it was off. The
-register is only printed when a family is dealt to more than one route, because
-"flute, mid" tells a reader nothing when there is only one flute.
+**A terminal board names its instrument**, labelled `instrument · tubular
+bells ▸` rather than *voice* — "voice" is this codebase's word for it and means
+nothing to a visitor, which the first person to see it said out loud. Pressing
+that line plays the place, and starts the music if it was off, since pressing
+something labelled with an instrument is a request to hear it. The **legend
+does not** carry instrument names: it is a colour key, it is collapsed behind a
+button on a phone, and naming a sound that is switched off most of the time was
+noise in the one place that has to stay scannable.
 
 Clicking a route in the legend **auditions it** — solos it and plays its
 instrument — because otherwise the only way to learn a route's voice is to wait
