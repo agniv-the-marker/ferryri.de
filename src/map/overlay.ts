@@ -263,8 +263,11 @@ export class Overlay {
     cam: Camera,
     vessels: VesselState[],
     water: ((x: number, y: number) => number) | null = null,
-    /** 0..1 per trip: how recently this vessel sounded a note. */
-    flash: ((tripId: string) => number) | null = null,
+    /**
+     * 0..1: how recently each thing sounded a note. Hulls brighten, terminals
+     * ring — so you can see which boat and which dock you are hearing.
+     */
+    flash: { vessel: (tripId: string) => number; station: (id: string) => number } | null = null,
   ) {
     this.lastVessels = vessels;
     const ctx = this.ctx;
@@ -356,12 +359,31 @@ export class Overlay {
         this.selected?.type === 'terminal' &&
         (this.selected.terminal.id === t.id ||
           this.selected.terminal.parent === t.id);
-      const r = selected ? 4.5 : 3.5;
+      // A terminal rings when its own note goes out — the wave arriving, or
+      // the place speaking up on its own. It is drawn as a ring leaving the
+      // dock rather than as a brighter dot, because that is what the water is
+      // doing, and because a station's ink is the same ink as the coastline:
+      // brightening it would read as a smudge rather than as an event.
+      const lit = flash ? flash.station(t.id) : 0;
+      if (lit > 0.01) {
+        // The ring starts clear of the marker and fades more slowly than it
+        // grows: tied straight to the flash it was brightest at 4 px, hidden
+        // under the dot it came from, and all but gone by the time it was big
+        // enough to see.
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 5 + (1 - lit) * 9, 0, Math.PI * 2);
+        ctx.globalAlpha = Math.pow(lit, 0.6) * 0.65;
+        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = ink;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+      const r = (selected ? 4.5 : 3.5) + lit * 1.2;
       ctx.beginPath();
       ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
       ctx.fillStyle = bg;
       ctx.fill();
-      ctx.lineWidth = selected ? 2 : 1.4;
+      ctx.lineWidth = (selected ? 2 : 1.4) + lit * 0.8;
       ctx.strokeStyle = ink;
       ctx.stroke();
 
@@ -470,7 +492,7 @@ export class Overlay {
       // A hull lifts for a moment as its note goes out — a tiny bit brighter
       // and a hair larger, gone inside a second. Enough to tell you which boat
       // you are hearing without turning the map into a light show.
-      const lit = flash ? flash(v.trip.id) : 0;
+      const lit = flash ? flash.vessel(v.trip.id) : 0;
 
       ctx.save();
       ctx.translate(p.x + swayX, p.y + lift + swayY);

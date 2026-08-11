@@ -66,19 +66,29 @@ export class Harbor {
     wash.loop = true;
     const band = ctx.createBiquadFilter();
     band.type = 'bandpass';
-    band.frequency.value = 620;
-    band.Q.value = 0.7;
-    const washGain = ctx.createGain();
-    washGain.gain.value = 0;
-    // a slow swell over the wash, so it is never a flat hiss
+    // lower and narrower than it was: at 620 Hz with a wide skirt this sat in
+    // the same range as the instruments and read as hiss rather than as water
+    band.frequency.value = 430;
+    band.Q.value = 1.1;
+    // A slow swell over the wash, so it is never a flat hiss — on its own
+    // stage. An AudioParam sums whatever is connected to it *on top of* its
+    // scheduled value, so an LFO wired straight onto the level gain was not
+    // shaping the wash, it was driving it: the noise ran at up to 0.4 no
+    // matter what the harbor knob said, and turning the room off did not turn
+    // it off. Multiplying instead of adding keeps the level in charge.
+    const swell = ctx.createGain();
+    swell.gain.value = 0.7;
     const lfo = ctx.createOscillator();
     lfo.frequency.value = 0.07;
     const lfoGain = ctx.createGain();
-    lfoGain.gain.value = 0.4;
+    lfoGain.gain.value = 0.3; // so the swell breathes between 0.4 and 1.0
     lfo.connect(lfoGain);
-    lfoGain.connect(washGain.gain);
+    lfoGain.connect(swell.gain);
+    const washGain = ctx.createGain();
+    washGain.gain.value = 0;
     wash.connect(band);
-    band.connect(washGain);
+    band.connect(swell);
+    swell.connect(washGain);
     washGain.connect(this.bus);
     wash.start();
     lfo.start();
@@ -125,7 +135,7 @@ export class Harbor {
     if (!this.running) return;
     const level = this.muted ? 0 : T.musicHarbor;
     const now = this.ctx.currentTime;
-    this.washGain?.gain.setTargetAtTime(level * 0.035, now, this.muted ? 0.15 : 2.5);
+    this.washGain?.gain.setTargetAtTime(level * T.musicWash * 0.035, now, this.muted ? 0.15 : 2.5);
     this.humGain?.gain.setTargetAtTime(level * this.activity * 0.03, now, this.muted ? 0.15 : 3);
     if (level <= 0) {
       // keep the clocks rolling forward, or a horn banked up while the panel
