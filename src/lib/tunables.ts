@@ -153,6 +153,14 @@ export const SPECS = {
   // it stands on land where the sim pins the field flat.
   musicStationReach: num('music', 'station reach m', 250, 50, 1200, 25),
   musicPan: num('music', 'heel → pan', 0.6, 0, 1, 0.05),
+  // The room the music sits in: wash, an idling engine, a bell buoy, and the
+  // occasional foghorn. Synthesised, not recorded — see src/audio/harbor.ts.
+  musicHarbor: num('music', 'harbor', 0.8, 0, 2, 0.05),
+  musicFoghorn: num('music', 'foghorn', 1, 0, 2, 0.05),
+  // Recorded instruments instead of synthesised ones — the same score, the
+  // same envelopes, a different palette. ~0.7 MB, fetched only when switched
+  // on. `?voices=sf` picks it at boot so the two can be compared on a reload.
+  musicSampled: bool('music', 'sampled voices', false),
 
   // ---- camera ----
   camStiffness: num('camera', 'damping stiffness', 12.5, 2, 20, 0.5),

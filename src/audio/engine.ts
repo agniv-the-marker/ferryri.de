@@ -15,6 +15,7 @@
  * the backstop so a tap during a full bay can never clip.
  */
 import { T } from '../lib/tunables';
+import type { Bank } from './bank';
 
 export interface VoicePreset {
   /**
@@ -59,6 +60,8 @@ export interface VoicePreset {
 
 export interface Note {
   preset: VoicePreset;
+  /** Which family this is, so the sampled palette knows what to reach for. */
+  family?: string;
   freq: number;
   /** context time to start; anything in the past is nudged to now */
   when: number;
@@ -127,6 +130,8 @@ export class Engine {
   debugDropped = 0;
   private drone: OscillatorNode[] = [];
   private droneGain: GainNode | null = null;
+  /** When set and loaded, notes come from recordings instead of oscillators. */
+  bank: Bank | null = null;
   /** One PeriodicWave per preset, built on first use and kept. */
   private waves = new Map<VoicePreset, PeriodicWave>();
   private noise: AudioBuffer | null = null;
@@ -165,6 +170,16 @@ export class Engine {
     this.master.connect(this.reverb);
     this.reverb.connect(this.wet);
     this.wet.connect(comp);
+  }
+
+  /** Where anything that wants the master and the room should connect. */
+  get bus(): AudioNode {
+    return this.master;
+  }
+
+  /** Shared noise, also used by the harbor's wash. */
+  get noiseSource(): AudioBuffer {
+    return this.noiseBuffer();
   }
 
   /** The preset's harmonic series, as a wave the oscillator can play. */
@@ -261,6 +276,22 @@ export class Engine {
     const t = Math.max(n.when, ctx.currentTime);
     const peak = Math.max(0, Math.min(1, n.velocity)) * p.gain;
     if (peak <= 0.0001) return false;
+
+    // The sampled palette borrows the pool accounting and the bus, so the mix,
+    // the stealing and the room all behave identically either way — the only
+    // thing that changes is where the sound comes from.
+    if (this.bank?.ready && n.family && this.bank.play(n.family, n, this.master)) {
+      const held = { env: ctx.createGain(), oscs: [] as OscillatorNode[], priority };
+      this.live.push(held);
+      setTimeout(
+        () => {
+          const i = this.live.indexOf(held);
+          if (i >= 0) this.live.splice(i, 1);
+        },
+        (Math.max(0.05, n.ring) + p.release) * 1000,
+      );
+      return true;
+    }
 
     const env = ctx.createGain();
     env.gain.setValueAtTime(0, t);

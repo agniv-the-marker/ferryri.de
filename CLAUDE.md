@@ -14,6 +14,8 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
 - `npm run data` — refresh `public/data/schedule.json` from the official SF Bay
   Ferry and Golden Gate feeds and merge locally curated published schedules
   and the external-service catalog.
+- `npm run voices` — one-time fetch of `public/audio/bank/` (sampled voices,
+  FluidR3_GM via MIDI.js soundfonts, CC-BY 3.0). Outputs are committed.
 - `npm run geo` — one-time rebuild of `public/data/coast.json` (MTC/TIGER
   shoreline) and `topo.png` (terrarium hillshade). Outputs are committed.
 
@@ -84,6 +86,8 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
 | `station reach m` | how far offshore a terminal listens — metres, because a dock sampled at the dock never hears anything |
 | `wave arrival` | how high the water must rise to count as "the wave got here". Peak under a hull is ~0.13, so 0.02 fires most things and 0.20 fires nothing |
 | `heel → pan` | how far a rolling boat pushes its note toward one ear |
+| `harbor` / `foghorn` | the room: wash, an idling engine, a bell buoy, and the horn |
+| `sampled voices` | recorded instruments instead of synthesised ones (`?voices=sf`) |
 
 Clicking a route in the legend **auditions it** — solos it and plays its
 instrument — because otherwise the only way to learn a route's voice is to wait
@@ -105,6 +109,14 @@ and `STATION_VOICE` in `score.ts` assigns each terminal by hand from what the
 place *was*: the Ferry Building is a bell for its clock tower, Mare Island is
 struck metal for the shipyard, Angel Island is wood for the immigration
 barracks. Clicking one route in the legend solos it outright.
+
+`harbor.ts` is the room tone — wash, engine hum, bell buoy, foghorn — and it is
+**synthesised, not recorded**: nobody could hold a microphone off a pier, and
+shipping downloaded audio nobody has listened to would be worse than shipping
+none. `bank.ts` is the alternate palette, one recorded instrument per family at
+four pitches with `playbackRate` between, sharing the score, the envelopes, the
+voice pool and the bus — so the only thing that changes is where the sound
+comes from. It is fetched only when someone switches to it.
 
 Two things worth knowing before changing this code. The wave field is flat far
 more than 99% of the time, so everything that reads it is gated behind a

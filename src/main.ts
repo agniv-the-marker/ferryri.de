@@ -139,10 +139,15 @@ async function boot() {
   // inside the click's own call stack — which is the gesture browsers require.
   musicBtn.addEventListener('click', () => setTunable('musicOn', !music.enabled));
   onTune(() => {
+    music.syncPalette();
     if (T.musicOn === music.enabled) return;
     musicBtn.setAttribute('aria-pressed', String(T.musicOn));
     void music.setEnabled(T.musicOn);
   });
+  // dev: ?voices=sf boots on the sampled palette, so a reload is the whole A/B
+  if (new URLSearchParams(location.search).get('voices') === 'sf') {
+    setTunable('musicSampled', true);
+  }
   const musicParam = new URLSearchParams(location.search).get('music');
   // A choice left on last visit can't resume itself — browsers need a gesture,
   // so it arms here and starts on whatever the visitor touches first.

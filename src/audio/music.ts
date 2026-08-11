@@ -21,6 +21,8 @@ import type { VesselState } from '../sim/vessels';
 import { T } from '../lib/tunables';
 import { routeVisible } from '../lib/visibility';
 import { Engine } from './engine';
+import { Harbor } from './harbor';
+import { Bank } from './bank';
 import { TAP } from './voices';
 import {
   DRONE_FREQS,
@@ -71,6 +73,8 @@ const STORAGE_KEY = 'ferryride.music';
 export class Music {
   private ctx: AudioContext | null = null;
   private engine: Engine | null = null;
+  private harbor: Harbor | null = null;
+  private bank: Bank | null = null;
   private timer: number | null = null;
   private voices: Map<string, RouteVoice>;
   private routeById: Map<string, Route>;
@@ -134,6 +138,7 @@ export class Music {
     }
     if (!on) {
       this.engine?.stopDrone();
+      this.harbor?.stop();
       await this.ctx?.suspend().catch(() => {});
       if (this.timer !== null) {
         clearInterval(this.timer);
@@ -144,7 +149,9 @@ export class Music {
     if (!this.ctx) {
       this.ctx = new AudioContext();
       this.engine = new Engine(this.ctx);
+      this.harbor = new Harbor(this.ctx, this.engine.bus, this.engine.noiseSource);
     }
+    this.syncPalette();
     // Chrome leaves resume() pending indefinitely — not rejected, pending —
     // when the autoplay policy blocks it, so never hang a caller on it.
     await Promise.race([
@@ -159,9 +166,30 @@ export class Music {
       this.timer = setInterval(() => this.tick(), TICK_MS) as unknown as number;
     }
     this.engine?.startDrone(DRONE_FREQS);
+    this.harbor?.start();
   }
 
-  /** Follows the page: no reason to keep a mix running for a hidden tab. */
+  /**
+   * Switch palettes. The bank is only fetched the first time someone actually
+   * asks for it, so nobody pays 0.7 MB for a palette they never chose.
+   */
+  syncPalette() {
+    const { ctx, engine } = this;
+    if (!ctx || !engine) return;
+    if (!T.musicSampled) {
+      engine.bank = null;
+      return;
+    }
+    if (!this.bank) {
+      this.bank = new Bank(ctx);
+      void this.bank.load([...new Set([...this.voices.values()].map((v) => v.family!))])
+        .then(() => {
+          if (T.musicSampled && this.engine) this.engine.bank = this.bank;
+        });
+      return;
+    }
+    engine.bank = this.bank;
+  }
   async setAwake(awake: boolean) {
     if (!this.ctx || !this.on) return;
     await (awake ? this.ctx.resume() : this.ctx.suspend()).catch(() => {});
@@ -178,7 +206,9 @@ export class Music {
   /** Called every rAF; cheap by design — it only leaves state behind. */
   frame(state: FrameState) {
     this.snapshot = state;
-    if (this.on) this.listenForWaves(state);
+    if (!this.on) return;
+    this.harbor?.setActivity(state.vessels.length);
+    this.listenForWaves(state);
   }
 
   // ---- ripple → hulls -----------------------------------------------------
@@ -222,6 +252,7 @@ export class Music {
         if (!this.arrived(v.trip.id, height, now, gate)) continue;
         if (this.engine.play({
           preset: voice.preset,
+          family: voice.family,
           freq: degreeToFreq(voice, this.degreeOf(v, state.nowSec)),
           when: now + 0.02,
           ring: T.musicRing * 0.35,
@@ -260,6 +291,7 @@ export class Music {
         if (!this.arrived(`s${st.id}`, height, now, gate)) continue;
         if (this.engine.play({
           preset: st.voice.preset,
+          family: st.voice.family,
           freq: degreeToFreq(st.voice, st.degree),
           when: now + 0.02,
           ring: T.musicRing,
@@ -287,6 +319,7 @@ export class Music {
         if (!this.arrived(`l${i}`, height, now, gate)) continue;
         if (this.engine.play({
           preset: voice.preset,
+          family: voice.family,
           freq: degreeToFreq(voice, post.degree),
           when: now + 0.02,
           ring: T.musicRing * 0.4,
@@ -323,6 +356,7 @@ export class Music {
     const { ctx, engine, snapshot } = this;
     if (!ctx || !engine || !snapshot || !this.on) return;
     engine.sync();
+    this.harbor?.tick();
     const horizon = ctx.currentTime + LOOKAHEAD;
     const bed = T.musicBed;
     if (bed <= 0) return;
@@ -346,6 +380,7 @@ export class Music {
       const velocity = (v.docked ? 0.18 : 0.45) * bed;
       engine.play({
         preset: voice.preset,
+        family: voice.family,
         freq: degreeToFreq(voice, this.degreeOf(v, snapshot.nowSec)),
         when: Math.max(at, ctx.currentTime),
         ring: T.musicRing,
@@ -390,6 +425,7 @@ export class Music {
       if (st) {
         engine.play({
           preset: st.voice.preset,
+          family: st.voice.family,
           freq: degreeToFreq(st.voice, st.degree),
           when: ctx.currentTime + 0.02,
           ring: T.musicRing,
@@ -444,6 +480,7 @@ export class Music {
       if (!voice || !this.visible(n.routeId)) continue;
       engine.play({
         preset: voice.preset,
+        family: voice.family,
         freq: degreeToFreq(voice, n.degree),
         when: t0 + n.at,
         ring: T.musicRing,
