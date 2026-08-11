@@ -71,7 +71,7 @@ export const SPECS = {
   landLevels: num('palette', 'land tones', 4, 2, 8, 1),
 
   // ---- water ----
-  waterDrift: num('water', 'drift speed', 1.45, 0, 4, 0.05),
+  waterDrift: num('water', 'drift speed', 0.2, 0, 4, 0.05),
   waterFreq: num('water', 'noise scale', 0.015, 0.01, 0.2, 0.005),
   waterContrast: num('water', 'contrast band', 0.35, 0.02, 0.5, 0.01),
   waterFine: num('water', 'fine octave', 0.16, 0, 0.6, 0.02),
@@ -107,7 +107,7 @@ export const SPECS = {
 
   // ---- ripple (tap the water; waves reflect off the coastline) ----
   rippleC: num('ripple', 'wave speed', 0.44, 0.02, 0.48, 0.01),
-  rippleDamp: num('ripple', 'damping', 0.977, 0.9, 0.9995, 0.0005),
+  rippleDamp: num('ripple', 'damping', 0.934, 0.9, 0.9995, 0.0005),
   rippleSplat: num('ripple', 'tap strength', 0.1, 0.1, 2, 0.05),
   rippleRadius: num('ripple', 'tap size px', 12, 3, 40, 1),
   rippleAmp: num('ripple', 'visual strength', 1.75, 0, 2.5, 0.05),
