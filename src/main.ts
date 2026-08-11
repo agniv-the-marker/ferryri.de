@@ -135,9 +135,26 @@ async function boot() {
   // ---- music: the bay as a score, off until asked for ----
   const music = new Music(schedule);
   const musicBtn = document.getElementById('music-link') as HTMLButtonElement;
-  // The tunable is the switch; the button and the dev panel's checkbox are two
-  // handles on it. Tunable listeners run synchronously, so audio still starts
-  // inside the click's own call stack — which is the gesture browsers require.
+  // dev: ?voices=sf boots on the sampled palette, so a reload is the whole A/B
+  if (new URLSearchParams(location.search).get('voices') === 'sf') {
+    setTunable('musicSampled', true);
+  }
+  // What this visit wants, settled *before* anything listens for it. The
+  // tunable only ever means "wanted" — `music.enabled` is the one that means
+  // "sounding", since nothing can start without a gesture. Off by default; a
+  // visitor who turned it on last time has it armed for their first touch, and
+  // ?music= beats both.
+  const musicParam = new URLSearchParams(location.search).get('music');
+  const remembered = Music.rememberedChoice();
+  const wantMusic =
+    musicParam !== null ? musicParam !== '0' : (remembered ?? T.musicOn);
+  setTunable('musicOn', wantMusic);
+  musicBtn.setAttribute('aria-pressed', 'false');
+
+  // From here the tunable is the switch, and the button, the dev panel's
+  // checkbox and the first-gesture arming below are three handles on it.
+  // Tunable listeners run synchronously, so audio still starts inside the
+  // gesture's own call stack — which is what browsers require.
   musicBtn.addEventListener('click', () => setTunable('musicOn', !music.enabled));
   onTune(() => {
     music.syncPalette();
@@ -145,27 +162,27 @@ async function boot() {
     musicBtn.setAttribute('aria-pressed', String(T.musicOn));
     void music.setEnabled(T.musicOn);
   });
-  // dev: ?voices=sf boots on the sampled palette, so a reload is the whole A/B
-  if (new URLSearchParams(location.search).get('voices') === 'sf') {
-    setTunable('musicSampled', true);
-  }
-  const musicParam = new URLSearchParams(location.search).get('music');
-  // A choice left on last visit can't resume itself — browsers need a gesture,
-  // so it arms here and starts on whatever the visitor touches first.
-  const wantMusic = musicParam !== null ? musicParam !== '0' : Music.remembered();
   if (wantMusic) {
-    setTunable('musicOn', true);
-    musicBtn.setAttribute('aria-pressed', 'true');
-    const arm = () => {
+    // Music was asked for on a previous visit but cannot resume itself, so it
+    // starts on whatever the visitor touches first. The music button is the
+    // exception: it starts audio in its own click handler, and doing it here
+    // as well would have this gesture start it and that one immediately
+    // toggle it back off — which is what the one control everyone reaches for
+    // first used to do.
+    const arm = (e: Event) => {
       removeEventListener('pointerdown', arm);
-      if (T.musicOn) void music.setEnabled(true);
+      if ((e.target as Element | null)?.closest?.('#music-link')) return;
+      if (!music.enabled) setTunable('musicOn', true);
     };
-    addEventListener('pointerdown', arm, { once: true });
+    addEventListener('pointerdown', arm);
   }
 
   // dev: ?bob turns on boat bobbing (off by default; also a dev-panel switch)
   const bobParam = new URLSearchParams(location.search).get('bob');
   if (bobParam !== null) setTunable('bobEnable', bobParam !== '0');
+
+  // hoisted: the frame loop must not build a closure every frame
+  const vesselFlash = (tripId: string) => music.flashAt(tripId);
 
   const musicSnapshot: FrameState = {
     vessels: [],
@@ -288,6 +305,7 @@ async function boot() {
       camera,
       lastVesselList,
       reducedMotion.matches ? null : renderer.waterSampler(camera, waterTime),
+      music.enabled ? vesselFlash : null,
     );
     // One snapshot object, refilled each frame rather than rebuilt: at 60 fps
     // the garbage from allocating here (and a sampler closure with it) is what

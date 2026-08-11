@@ -19,7 +19,7 @@ import type { Departure } from '../sim/schedule';
 import type { Route, ScheduleData } from '../lib/types';
 import type { VesselState } from '../sim/vessels';
 import { T } from '../lib/tunables';
-import { routeVisible } from '../lib/visibility';
+import { routeVisible, stationRoutes, stationVisible } from '../lib/visibility';
 import { Engine } from './engine';
 import { Harbor } from './harbor';
 import { Bank } from './bank';
@@ -56,6 +56,8 @@ const WAVE_REFRACTORY = 0.35;
 const LISTEN_WINDOW = 8;
 /** Points around a station's radius, so whichever side faces water is heard. */
 const STATION_RING = 8;
+/** How long a hull stays tinted after it sounds. */
+const FLASH_MS = 900;
 
 export interface FrameState {
   vessels: VesselState[];
@@ -80,17 +82,28 @@ export class Music {
   private routeById: Map<string, Route>;
   private posts: Post[];
   private stations: StationPost[];
+  /** Which routes call at each terminal — the map's own test for drawing one. */
+  private stationRoutes: Map<string, Route[]>;
   private tapVoice: RouteVoice = { preset: TAP, octave: 1 };
   /** Context time after which the water is assumed flat again. */
   private listenUntil = 0;
   /** Trip id of the vessel brought forward in the mix, if any. */
   private focus: string | null = null;
+  /**
+   * When each vessel last sounded, on the wall clock — the overlay tints a
+   * hull for a moment as its note goes out, so you can see which boat you are
+   * hearing. Wall clock rather than context time because the overlay has no
+   * reason to know about the audio clock.
+   */
+  private flashes = new Map<string, number>();
   private snapshot: FrameState | null = null;
   /** next fleet-bed note per trip, in context time */
   private nextAt = new Map<string, number>();
   /** last ripple height + last trigger time per trip */
   private waveSeen = new Map<string, { h: number; at: number }>();
   private on = false;
+  /** The dev panel is auditioning: everything the bay does on its own is held. */
+  private benched = false;
   /**
    * Dev aid, in the spirit of `debugWavePeak`: how many hulls have answered a
    * wavefront, and the highest the water has been seen to reach under one.
@@ -111,6 +124,7 @@ export class Music {
     // projected once at boot, not per frame
     this.posts = listeningPosts(data);
     this.stations = stationPosts(data.terminals);
+    this.stationRoutes = stationRoutes(data);
   }
 
   /**
@@ -145,6 +159,24 @@ export class Music {
     return `${voice.family} · register ${voice.octave} · ${degreeToFreq(voice, degree).toFixed(0)} Hz`;
   }
 
+  /**
+   * Hold everything the bay is doing on its own — the fleet bed, the drone and
+   * the room — so the listening bench can play one thing against silence. An
+   * audition heard over eight ferries, a foghorn and a bell buoy answers the
+   * wrong question: you cannot tell whether the voices differ if you cannot
+   * hear them. What the bench itself triggers still sounds, which is why the
+   * wave pass is left alone — tapping the bay is the one check whose whole
+   * subject is what answers.
+   */
+  bench(on: boolean) {
+    if (on === this.benched) return;
+    this.benched = on;
+    this.harbor?.setMuted(on);
+    if (!this.engine) return;
+    if (on) this.engine.stopDrone();
+    else if (this.on) this.engine.startDrone(DRONE_FREQS);
+  }
+
   /** Names the dev panel can walk through. */
   get families(): string[] {
     return Object.keys(FAMILIES);
@@ -158,12 +190,17 @@ export class Music {
     this.debugWavePeak = 0;
   }
 
-  /** Was music left on last visit? Restored, but never resumed without a gesture. */
-  static remembered(): boolean {
+  /**
+   * What was chosen last visit, or null if this visitor has never said. Null
+   * matters: it is the difference between "they turned it off" and "they have
+   * not been here", and only the first should override the default.
+   */
+  static rememberedChoice(): boolean | null {
     try {
-      return localStorage.getItem(STORAGE_KEY) === 'on';
+      const v = localStorage.getItem(STORAGE_KEY);
+      return v === null ? null : v === 'on';
     } catch {
-      return false;
+      return null;
     }
   }
 
@@ -212,7 +249,10 @@ export class Music {
     if (this.timer === null) {
       this.timer = setInterval(() => this.tick(), TICK_MS) as unknown as number;
     }
-    this.engine?.startDrone(DRONE_FREQS);
+    // starting up *into* a bench hold: bring the room up already quiet, and
+    // leave the drone for when the hold is released
+    if (!this.benched) this.engine?.startDrone(DRONE_FREQS);
+    this.harbor?.setMuted(this.benched);
     this.harbor?.start();
   }
 
@@ -258,6 +298,26 @@ export class Music {
   setFocus(tripId: string | null) {
     this.focus = tripId;
     this.engine?.setFocused(tripId !== null);
+  }
+
+  /**
+   * How brightly to tint a hull right now, 0..1 — a short decay from the
+   * moment its note began. Read every frame by the overlay, so it allocates
+   * nothing and takes a map lookup.
+   */
+  flashAt(tripId: string): number {
+    const at = this.flashes.get(tripId);
+    if (at === undefined) return 0;
+    const age = (performance.now() - at) / FLASH_MS;
+    return age >= 1 ? 0 : 1 - age;
+  }
+
+  private flash(tripId: string) {
+    this.flashes.set(tripId, performance.now());
+    if (this.flashes.size > 300) {
+      const cutoff = performance.now() - FLASH_MS;
+      for (const [id, at] of this.flashes) if (at < cutoff) this.flashes.delete(id);
+    }
   }
 
   /** How loud a given vessel should be, given what is in focus. */
@@ -323,7 +383,10 @@ export class Music {
           pan: this.panOf(v, state),
           detune: vesselDetune(v.trip.id),
           priority: 3,
-        })) this.debugWaveNotes++;
+        })) {
+          this.debugWaveNotes++;
+          this.flash(v.trip.id);
+        }
       }
     }
 
@@ -331,6 +394,7 @@ export class Music {
     const stops = T.musicRippleStop;
     if (stops > 0) {
       for (const st of this.stations) {
+        if (!this.stationLit(st.id)) continue;
         if (state.spotlight !== null && !this.serves(st.id, state.spotlight)) continue;
         const x = st.world.x * s + tx;
         const y = st.world.y * s + ty;
@@ -420,6 +484,7 @@ export class Music {
     if (!ctx || !engine || !snapshot || !this.on) return;
     engine.sync();
     this.harbor?.tick();
+    if (this.benched) return;
     const horizon = ctx.currentTime + LOOKAHEAD;
     const bed = T.musicBed;
     if (bed <= 0) return;
@@ -441,7 +506,7 @@ export class Music {
       this.nextAt.set(id, at + period);
       // docked boats are tied up, not sailing — they murmur
       const velocity = (v.docked ? 0.18 : 0.45) * bed * this.focusGain(id);
-      engine.play({
+      if (engine.play({
         preset: voice.preset,
         family: voice.family,
         freq: degreeToFreq(voice, this.degreeOf(v, snapshot.nowSec)),
@@ -450,7 +515,7 @@ export class Music {
         velocity,
         pan: this.panOf(v, snapshot),
         detune: this.detuneOf(v, snapshot) + vesselDetune(id),
-      });
+      })) this.flash(id);
     }
     if (this.nextAt.size > 400) this.nextAt.clear();
   }
@@ -523,6 +588,7 @@ export class Music {
   vesselRun(v: VesselState, nowSec: number) {
     const voice = this.voices.get(v.routeId);
     if (!voice) return;
+    this.flash(v.trip.id);
     const from = this.degreeOf(v, nowSec);
     this.playPhrase(
       [0, 1, 2].map((i) => ({
@@ -567,6 +633,16 @@ export class Music {
    */
   private muted(routeId: string, spotlight: string | null): boolean {
     return spotlight !== null && spotlight !== routeId;
+  }
+
+  /**
+   * Is this terminal on the paper right now? Hiding a class or an operator
+   * takes its stations off the map, and a dock nobody can see answering a wave
+   * is a ghost — so the music asks the same question the map does, through the
+   * same predicate.
+   */
+  private stationLit(stationId: string): boolean {
+    return stationVisible(this.stationRoutes.get(stationId));
   }
 
   /** A station belongs to no route, so it answers only for the ones it serves. */

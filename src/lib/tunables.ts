@@ -132,40 +132,42 @@ export const SPECS = {
   // ---- music (the bay as a generative score) ----
   // Voices are paired oscillators a few cents apart, so every note beats
   // against itself the way an aulos's two pipes do, rung out through a long
-  // reverb. Off by default and never autoplaying: the footer button is the
-  // gesture the browser requires. `?music` / `?music=0` forces it.
+  // reverb. Off by default: a site that starts making noise at you is a site
+  // you close. This flag means *wanted* — nothing sounds until a gesture, and
+  // a visitor who turned it on last time has it armed for their first touch.
+  // `?music` / `?music=0` forces it either way.
   musicOn: bool('music', 'music', false),
-  musicGain: num('music', 'master', 0.2, 0, 1, 0.01),
-  musicDrone: num('music', 'drone', 0.5, 0, 2, 0.05),
+  musicGain: num('music', 'master', 0.05, 0, 1, 0.01),
+  musicDrone: num('music', 'drone', 0.3, 0, 2, 0.05),
   musicBeat: num('music', 'beat cents', 7, 0, 30, 0.5),
   musicGlide: num('music', 'glide s', 0.12, 0, 2, 0.01),
-  musicRing: num('music', 'note ring s', 5, 1, 16, 0.5),
-  musicReverb: num('music', 'reverb wet', 0.16, 0, 1, 0.01),
-  musicDensity: num('music', 'fleet density', 1, 0, 3, 0.05),
-  musicBed: num('music', 'fleet level', 1, 0, 2, 0.05),
-  musicPhrase: num('music', 'phrase level', 1, 0, 2, 0.05),
-  musicRippleBell: num('music', 'ripple bell', 1, 0, 2, 0.05),
-  musicRippleSeq: num('music', 'ripple → hulls', 1, 0, 2, 0.05),
-  musicRippleStop: num('music', 'ripple → stations', 0.8, 0, 2, 0.05),
-  musicRippleLine: num('music', 'ripple → routes', 0.35, 0, 2, 0.05),
-  musicRippleGate: num('music', 'wave arrival', 0.06, 0.01, 0.4, 0.01),
+  musicRing: num('music', 'note ring s', 7, 1, 16, 0.5),
+  musicReverb: num('music', 'reverb wet', 0.4, 0, 1, 0.01),
+  musicDensity: num('music', 'fleet density', 1.45, 0, 3, 0.05),
+  musicBed: num('music', 'fleet level', 0.7, 0, 2, 0.05),
+  musicPhrase: num('music', 'phrase level', 1.4, 0, 2, 0.05),
+  musicRippleBell: num('music', 'ripple bell', 1.3, 0, 2, 0.05),
+  musicRippleSeq: num('music', 'ripple → hulls', 1.35, 0, 2, 0.05),
+  musicRippleStop: num('music', 'ripple → stations', 1.05, 0, 2, 0.05),
+  musicRippleLine: num('music', 'ripple → routes', 0.4, 0, 2, 0.05),
+  musicRippleGate: num('music', 'wave arrival', 0.04, 0.01, 0.4, 0.01),
   // Metres, not pixels: a station listens on a ring this far offshore, because
   // it stands on land where the sim pins the field flat.
   musicStationReach: num('music', 'station reach m', 250, 50, 1200, 25),
   musicPan: num('music', 'heel → pan', 0.6, 0, 1, 0.05),
   // The room the music sits in: wash, an idling engine, a bell buoy, and the
   // occasional foghorn. Synthesised, not recorded — see src/audio/harbor.ts.
-  musicHarbor: num('music', 'harbor', 0.8, 0, 2, 0.05),
-  musicFoghorn: num('music', 'foghorn', 1, 0, 2, 0.05),
+  musicHarbor: num('music', 'harbor', 0.3, 0, 2, 0.05),
+  musicFoghorn: num('music', 'foghorn', 0.65, 0, 2, 0.05),
   // Recorded instruments instead of synthesised ones — the same score, the
   // same envelopes, a different palette. ~0.7 MB, fetched only when switched
   // on. `?voices=sf` picks it at boot so the two can be compared on a reload.
-  musicSampled: bool('music', 'sampled voices', false),
+  musicSampled: bool('music', 'sampled voices', true),
   // Tapping a ferry brings it forward and pushes the rest back, with a
   // make-up on the bus so the mix does not get quieter — you hear *more* of
   // that boat, not less of everything.
-  musicFocus: num('music', 'focus lift ×', 1.9, 1, 4, 0.1),
-  musicFocusDuck: num('music', 'others duck ×', 0.35, 0, 1, 0.05),
+  musicFocus: num('music', 'focus lift ×', 3, 1, 4, 0.1),
+  musicFocusDuck: num('music', 'others duck ×', 0.2, 0, 1, 0.05),
 
   // ---- camera ----
   camStiffness: num('camera', 'damping stiffness', 12.5, 2, 20, 0.5),

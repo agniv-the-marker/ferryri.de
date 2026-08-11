@@ -10,7 +10,7 @@ import { project, metersPerWorldUnit, type WorldPt } from './proj';
 import type { Route, ScheduleData, Terminal } from '../lib/types';
 import type { VesselState } from '../sim/vessels';
 import { T } from '../lib/tunables';
-import { routeVisible } from '../lib/visibility';
+import { routeVisible, stationRoutes, stationVisible } from '../lib/visibility';
 
 export type Pick =
   | { type: 'terminal'; terminal: Terminal }
@@ -22,6 +22,21 @@ interface TerminalPt extends Terminal {
 
 const cssVar = (name: string) =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+/**
+ * Mix two hex colours. Used to lift a hull's ink for the moment its note is
+ * sounding, so you can see which boat you are hearing.
+ */
+function mixHex(from: string, to: string, t: number): string {
+  const parse = (h: string) => {
+    const n = parseInt(h.replace('#', ''), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  };
+  const [ar, ag, ab] = parse(from);
+  const [br, bg2, bb] = parse(to);
+  const m = (a: number, b: number) => Math.round(a + (b - a) * t);
+  return `rgb(${m(ar!, br!)},${m(ag!, bg2!)},${m(ab!, bb!)})`;
+}
 
 /**
  * Gazetteer so the paper isn't anonymous. `min` is the zoom the label fades
@@ -173,7 +188,7 @@ export class Overlay {
   private terminals: TerminalPt[];
   private stations: TerminalPt[];
   private routeById: Map<string, Route>;
-  private stationRoutes = new Map<string, Route[]>();
+  private stationRoutes: Map<string, Route[]>;
   private dpr = Math.min(devicePixelRatio || 1, 2);
   private lastVessels: VesselState[] = [];
   /** Per-vessel water response, eased frame to frame — see the bob block. */
@@ -222,13 +237,7 @@ export class Overlay {
       .map((t) => ({ ...t, world: project(t.lng, t.lat) }));
     this.stations = this.terminals.filter((t) => !t.parent);
     this.routeById = new Map(data.routes.map((r) => [r.id, r]));
-    for (const route of data.routes) {
-      for (const id of route.terminals) {
-        const list = this.stationRoutes.get(id) ?? [];
-        list.push(route);
-        this.stationRoutes.set(id, list);
-      }
-    }
+    this.stationRoutes = stationRoutes(data);
   }
 
   /**
@@ -254,6 +263,8 @@ export class Overlay {
     cam: Camera,
     vessels: VesselState[],
     water: ((x: number, y: number) => number) | null = null,
+    /** 0..1 per trip: how recently this vessel sounded a note. */
+    flash: ((tripId: string) => number) | null = null,
   ) {
     this.lastVessels = vessels;
     const ctx = this.ctx;
@@ -456,11 +467,16 @@ export class Overlay {
         swayY = -slopeUnit(gy) * T.bobSway * ride;
       }
 
+      // A hull lifts for a moment as its note goes out — a tiny bit brighter
+      // and a hair larger, gone inside a second. Enough to tell you which boat
+      // you are hearing without turning the map into a light show.
+      const lit = flash ? flash(v.trip.id) : 0;
+
       ctx.save();
       ctx.translate(p.x + swayX, p.y + lift + swayY);
       if (!v.docked) ctx.rotate(v.heading + rock);
       else if (rock) ctx.rotate(rock);
-      const L = size * (selected ? 1.25 : 1) * grow;
+      const L = size * (selected ? 1.25 : 1) * grow * (1 + lit * 0.12);
       const W2 = L * 0.36;
       ctx.beginPath();
       // pointed-bow hull
@@ -469,9 +485,11 @@ export class Overlay {
       ctx.quadraticCurveTo(-L * 0.52, 0, -L * 0.4, W2 * 0.9);
       ctx.quadraticCurveTo(L * 0.18, W2, L * 0.55, 0);
       ctx.closePath();
-      ctx.fillStyle = v.docked ? bg : accent;
+      ctx.fillStyle = lit > 0.01
+        ? mixHex(v.docked ? bg : accent, '#ffffff', lit * 0.45)
+        : (v.docked ? bg : accent);
       ctx.fill();
-      ctx.lineWidth = 1.2;
+      ctx.lineWidth = 1.2 + lit * 0.8;
       ctx.strokeStyle = v.docked ? accent : ink;
       ctx.stroke();
       ctx.restore();
@@ -535,6 +553,6 @@ export class Overlay {
   }
 
   private terminalVisible(t: Terminal): boolean {
-    return (this.stationRoutes.get(t.id) ?? []).some(routeVisible);
+    return stationVisible(this.stationRoutes.get(t.id));
   }
 }
