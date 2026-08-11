@@ -96,7 +96,7 @@ body {
 #attribution {
   position: absolute;
   left: 1rem;
-  bottom: calc(0.5rem + var(--safe-bottom));
+  bottom: calc(1.15rem + var(--safe-bottom));
   /* music sits above about, both quiet until wanted */
   display: flex;
   flex-direction: column;

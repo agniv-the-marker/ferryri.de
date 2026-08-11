@@ -13,6 +13,7 @@
  * reads it and schedules notes a little way ahead against the audio clock.
  */
 import type { Camera } from '../map/camera';
+import { metersPerWorldUnit } from '../map/proj';
 import type { BobState } from '../map/overlay';
 import type { Departure } from '../sim/schedule';
 import type { Route, ScheduleData } from '../lib/types';
@@ -20,7 +21,7 @@ import type { VesselState } from '../sim/vessels';
 import { T } from '../lib/tunables';
 import { routeVisible } from '../lib/visibility';
 import { Engine } from './engine';
-import { LINE, STATION, TAP } from './voices';
+import { TAP } from './voices';
 import {
   DRONE_FREQS,
   assignVoices,
@@ -31,9 +32,12 @@ import {
   periodFor,
   phraseFrom,
   stationPosts,
+  stationVoice,
+  vesselDetune,
   type PhraseNote,
   type Post,
   type RouteVoice,
+  type StationPost,
 } from './score';
 
 /** How far ahead of the audio clock notes are scheduled. */
@@ -48,8 +52,8 @@ const WAVE_REFRACTORY = 0.35;
  * what makes the whole pass free when the water is still.
  */
 const LISTEN_WINDOW = 8;
-/** How far off a dock to listen, in css px, to clear the shoreline. */
-const STATION_REACH = 16;
+/** Points around a station's radius, so whichever side faces water is heard. */
+const STATION_RING = 8;
 
 export interface FrameState {
   vessels: VesselState[];
@@ -71,9 +75,7 @@ export class Music {
   private voices: Map<string, RouteVoice>;
   private routeById: Map<string, Route>;
   private posts: Post[];
-  private stations: { id: string; world: { x: number; y: number }; degree: number }[];
-  private stationVoice: RouteVoice = { preset: STATION, octave: 1 };
-  private lineVoice: RouteVoice = { preset: LINE, octave: 1 };
+  private stations: StationPost[];
   private tapVoice: RouteVoice = { preset: TAP, octave: 1 };
   /** Context time after which the water is assumed flat again. */
   private listenUntil = 0;
@@ -203,6 +205,7 @@ export class Music {
     const ty = h / 2 - cam.cur.y * s;
     const gate = T.musicRippleGate;
     const ripple = state.ripple;
+    const reachPx = Math.max(2, T.musicStationReach / (metersPerWorldUnit(cam.cur.y) / s));
     const panOfX = (x: number) => ((x / w) * 2 - 1) * T.musicPan;
 
     // ---- hulls ----
@@ -210,7 +213,7 @@ export class Music {
     if (hulls > 0) {
       for (const v of state.vessels) {
         const voice = this.voices.get(v.routeId);
-        if (!voice || !this.visible(v.routeId)) continue;
+        if (!voice || !this.visible(v.routeId) || this.muted(v.routeId, state.spotlight)) continue;
         const x = v.pos.x * s + tx;
         const y = v.pos.y * s + ty;
         if (x < 0 || y < 0 || x > w || y > h) continue;
@@ -222,8 +225,9 @@ export class Music {
           freq: degreeToFreq(voice, this.degreeOf(v, state.nowSec)),
           when: now + 0.02,
           ring: T.musicRing * 0.6,
-          velocity: Math.min(0.9, 0.3 + height * 2) * hulls * this.duck(v.routeId, state.spotlight),
+          velocity: Math.min(0.9, 0.3 + height * 2) * hulls,
           pan: this.panOf(v, state),
+          detune: vesselDetune(v.trip.id),
           priority: 3,
         })) this.debugWaveNotes++;
       }
@@ -233,24 +237,30 @@ export class Music {
     const stops = T.musicRippleStop;
     if (stops > 0) {
       for (const st of this.stations) {
+        if (state.spotlight !== null && !this.serves(st.id, state.spotlight)) continue;
         const x = st.world.x * s + tx;
         const y = st.world.y * s + ty;
         if (x < 0 || y < 0 || x > w || y > h) continue;
         // A terminal stands on the shore, and the sim pins land flat so waves
         // reflect off the coast — sampled at the dock itself a station would
-        // never hear anything. Take the loudest of a small ring around it, so
-        // whichever side faces open water is the side that listens.
+        // never hear anything, ever. So it listens on a ring around itself.
+        //
+        // The radius is in *metres*, not pixels: a fixed pixel ring is two
+        // kilometres offshore at the whole-bay zoom and still on the pier at a
+        // slip, so a station would answer a different question at every zoom.
+        // Land reads flat and contributes nothing, which means the loudest
+        // point on the ring is automatically the side facing open water — no
+        // shoreline geometry needed.
         let height = 0;
-        for (let k = 0; k < 4; k++) {
-          const dx = k === 0 ? -STATION_REACH : k === 1 ? STATION_REACH : 0;
-          const dy = k === 2 ? -STATION_REACH : k === 3 ? STATION_REACH : 0;
-          const at = Math.abs(ripple(x + dx, y + dy));
+        for (let k = 0; k < STATION_RING; k++) {
+          const a = (k / STATION_RING) * Math.PI * 2;
+          const at = Math.abs(ripple(x + Math.cos(a) * reachPx, y + Math.sin(a) * reachPx));
           if (at > height) height = at;
         }
         if (!this.arrived(`s${st.id}`, height, now, gate)) continue;
         if (this.engine.play({
-          preset: STATION,
-          freq: degreeToFreq(this.stationVoice, st.degree),
+          preset: st.voice.preset,
+          freq: degreeToFreq(st.voice, st.degree),
           when: now + 0.02,
           ring: T.musicRing,
           velocity: Math.min(0.8, 0.28 + height * 1.6) * stops,
@@ -265,18 +275,22 @@ export class Music {
     if (lines > 0) {
       for (let i = 0; i < this.posts.length; i++) {
         const post = this.posts[i]!;
-        if (!this.visible(post.routeId)) continue;
+        if (!this.visible(post.routeId) || this.muted(post.routeId, state.spotlight)) continue;
+        // a line answering should tell you *which* line, so it borrows its
+        // route's instrument — just quieter and shorter than a hull's note
+        const voice = this.voices.get(post.routeId);
+        if (!voice) continue;
         const x = post.world.x * s + tx;
         const y = post.world.y * s + ty;
         if (x < 0 || y < 0 || x > w || y > h) continue;
         const height = Math.abs(ripple(x, y));
         if (!this.arrived(`l${i}`, height, now, gate)) continue;
         if (this.engine.play({
-          preset: LINE,
-          freq: degreeToFreq(this.lineVoice, post.degree),
+          preset: voice.preset,
+          freq: degreeToFreq(voice, post.degree),
           when: now + 0.02,
           ring: T.musicRing * 0.4,
-          velocity: 0.3 * lines * this.duck(post.routeId, state.spotlight),
+          velocity: 0.3 * lines,
           pan: panOfX(x),
           priority: 1,
         })) this.debugLineNotes++;
@@ -315,7 +329,7 @@ export class Music {
 
     for (const v of snapshot.vessels) {
       const voice = this.voices.get(v.routeId);
-      if (!voice || !this.visible(v.routeId)) continue;
+      if (!voice || !this.visible(v.routeId) || this.muted(v.routeId, snapshot.spotlight)) continue;
       const id = v.trip.id;
       let at = this.nextAt.get(id);
       if (at === undefined) {
@@ -329,7 +343,7 @@ export class Music {
       const period = periodFor(id, T.musicDensity);
       this.nextAt.set(id, at + period);
       // docked boats are tied up, not sailing — they murmur
-      const velocity = (v.docked ? 0.18 : 0.45) * bed * this.duck(v.routeId, snapshot.spotlight);
+      const velocity = (v.docked ? 0.18 : 0.45) * bed;
       engine.play({
         preset: voice.preset,
         freq: degreeToFreq(voice, this.degreeOf(v, snapshot.nowSec)),
@@ -337,7 +351,7 @@ export class Music {
         ring: T.musicRing,
         velocity,
         pan: this.panOf(v, snapshot),
-        detune: this.detuneOf(v, snapshot),
+        detune: this.detuneOf(v, snapshot) + vesselDetune(id),
       });
     }
     if (this.nextAt.size > 400) this.nextAt.clear();
@@ -410,9 +424,18 @@ export class Music {
     return !!route && routeVisible(route);
   }
 
-  /** Legend spotlight solos a route; everything else steps back. */
-  private duck(routeId: string, spotlight: string | null): number {
-    return spotlight === null || spotlight === routeId ? 1 : 0.25;
+  /**
+   * Clicking into one route means *only* that route. Ducking the others to a
+   * quarter still left the bay murmuring underneath, which is not what picking
+   * a single line out of the legend is asking for.
+   */
+  private muted(routeId: string, spotlight: string | null): boolean {
+    return spotlight !== null && spotlight !== routeId;
+  }
+
+  /** A station belongs to no route, so it answers only for the ones it serves. */
+  private serves(stationId: string, routeId: string): boolean {
+    return this.routeById.get(routeId)?.terminals.includes(stationId) ?? false;
   }
 
   /** Pitch climbs with progress through the crossing, so an arrival is audible. */
@@ -494,9 +517,10 @@ export async function musicKick(data: ScheduleData, seconds = 6) {
   let stations = 0;
   if (T.musicRippleStop > 0) {
     for (let i = 0; i < 2; i++) {
+      const sv = stationVoice(['7201', 'alcatraz'][i]!);
       if (engine.play({
-        preset: STATION,
-        freq: degreeToFreq({ preset: STATION, octave: 1 }, i * 2),
+        preset: sv.preset,
+        freq: degreeToFreq(sv, i * 2),
         when: 0.5 + i * 0.5,
         ring: T.musicRing,
         velocity: 0.4 * T.musicRippleStop,
@@ -506,9 +530,10 @@ export async function musicKick(data: ScheduleData, seconds = 6) {
   let lines = 0;
   if (T.musicRippleLine > 0) {
     for (let i = 0; i < 2; i++) {
+      const lv = voices[i % voices.length]!;
       if (engine.play({
-        preset: LINE,
-        freq: degreeToFreq({ preset: LINE, octave: 1 }, i),
+        preset: lv.preset,
+        freq: degreeToFreq(lv, i),
         when: 0.7 + i * 0.3,
         ring: T.musicRing * 0.4,
         velocity: 0.3 * T.musicRippleLine,

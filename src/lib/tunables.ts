@@ -76,6 +76,10 @@ export const SPECS = {
   waterContrast: num('water', 'contrast band', 0.35, 0.02, 0.5, 0.01),
   waterFine: num('water', 'fine octave', 0.16, 0, 0.6, 0.02),
   ditherPx: num('water', 'dither cell px', 2, 1, 6, 1),
+  // Zoomed out you see dozens of noise blobs at once and the sea reads as
+  // cloud rather than water. This lies the mottling down at the widest zooms
+  // and brings it back as you come in. 0 leaves it alone everywhere.
+  waterCalmOut: num('water', 'flatten zoomed out', 0.55, 0, 1, 0.05),
 
   // ---- swell (sum of Gerstner-style directional waves) ----
   swellAmp: num('swell', 'amplitude', 0.26, 0, 1, 0.02),
@@ -83,6 +87,10 @@ export const SPECS = {
   swellSharp: num('swell', 'crest sharpness', 2.2, 1, 5, 0.1),
   swellDir: num('swell', 'travel bearing°', 110, 0, 350, 5),
   swellZoom: num('swell', 'fade-out z', 12.3, 10, 15, 0.1),
+  // Zoomed out, a component whose crests are a pixel apart is not a wave, it
+  // is aliasing — and it draws as speckle. Each one fades below this many
+  // pixels of wavelength. 0 disables the limit (and brings the speckle back).
+  swellMinPx: num('swell', 'min wave px', 2.5, 0, 12, 0.5),
   swellCalm: num('swell', 'shore calming', 0, 0, 1, 0.05),
   shoreWaveAmp: num('swell', 'shore band amp', 0, 0, 0.8, 0.02),
   shoreWaveFreq: num('swell', 'shore band freq', 160, 5, 160, 1),
@@ -141,6 +149,9 @@ export const SPECS = {
   musicRippleStop: num('music', 'ripple → stations', 0.8, 0, 2, 0.05),
   musicRippleLine: num('music', 'ripple → routes', 0.35, 0, 2, 0.05),
   musicRippleGate: num('music', 'wave arrival', 0.06, 0.01, 0.4, 0.01),
+  // Metres, not pixels: a station listens on a ring this far offshore, because
+  // it stands on land where the sim pins the field flat.
+  musicStationReach: num('music', 'station reach m', 250, 50, 1200, 25),
   musicPan: num('music', 'heel → pan', 0.6, 0, 1, 0.05),
 
   // ---- camera ----

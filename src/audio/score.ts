@@ -11,7 +11,7 @@
 import type { Departure } from '../sim/schedule';
 import type { Route, ScheduleData, Terminal } from '../lib/types';
 import { project, type WorldPt } from '../map/proj';
-import { PRESET_ORDER, PRESETS } from './voices';
+import { FAMILIES, FAMILY_ORDER, type FamilyName } from './voices';
 import type { VoicePreset } from './engine';
 
 /**
@@ -24,23 +24,23 @@ const PENTATONIC = [0, 3, 5, 7, 10];
 /** A1. The old root was a fifth higher and the top of the range read as shrill. */
 const ROOT_MIDI = 33;
 
-/**
- * Where each preset sits, in octaves above the root. Three octaves, not four:
- * with the climb below, the highest note now lands around E4 rather than up in
- * the D6 whistle register.
- */
-const REGISTER: Record<string, number> = {
-  deep: 0,
-  drift: 0,
-  keys: 1,
-  swell: 1,
+/** Where each family sits by nature, in octaves above the root. */
+const HOME: Record<FamilyName, number> = {
+  hum: 0,
+  reed: 1,
+  bowed: 1,
+  metal: 1,
+  pipe: 2,
+  wood: 2,
   bell: 2,
-  crystal: 2,
+  plucked: 2,
+  glass: 3,
 };
 
 export interface RouteVoice {
   preset: VoicePreset;
   octave: number;
+  family?: FamilyName;
 }
 
 export const midiToFreq = (midi: number) => 440 * Math.pow(2, (midi - 69) / 12);
@@ -59,20 +59,49 @@ export function hash(s: string): number {
 }
 
 /**
- * Give every route a fixed voice. Assignment follows the route's own sort
- * order, so a route sounds the same on every visit and neighbouring routes
- * land in contrasting registers.
+ * Give every route its own instrument. Nine families across three registers is
+ * twenty-seven distinct voices, and the feed has nineteen routes — so the deal
+ * is: walk the families first and only drop a register once the whole palette
+ * has been used. Two routes can then never share both a family and a register,
+ * which is exactly what went wrong when six presets were cycled across
+ * nineteen routes and seven pairs came out identical.
+ *
+ * Assignment follows the routes' own sort order, so a route sounds the same on
+ * every visit and neighbours on the map contrast with each other.
  */
 export function assignVoices(routes: Route[]): Map<string, RouteVoice> {
   const out = new Map<string, RouteVoice>();
   const ordered = [...routes].sort((a, b) => a.sort - b.sort || a.id.localeCompare(b.id));
+  const taken = new Set<string>();
   ordered.forEach((r, i) => {
-    const name = PRESET_ORDER[i % PRESET_ORDER.length]!;
-    // past one pass through the palette, lift a register rather than repeat
-    const lift = Math.floor(i / PRESET_ORDER.length) % 2;
-    out.set(r.id, { preset: PRESETS[name]!, octave: (REGISTER[name] ?? 2) + lift });
+    const name = FAMILY_ORDER[i % FAMILY_ORDER.length]!;
+    const home = HOME[name];
+    // Second and third times through the palette a family moves register. The
+    // shifts are tried in order and the first free one wins, because simply
+    // subtracting and clamping at zero folded voices back on top of each other
+    // — which is how two routes ended up identical again.
+    let octave = home;
+    for (const shift of [0, -1, 1, -2, 2]) {
+      const candidate = Math.max(0, Math.min(3, home + shift));
+      if (!taken.has(`${name}${candidate}`)) {
+        octave = candidate;
+        break;
+      }
+    }
+    taken.add(`${name}${octave}`);
+    out.set(r.id, { preset: FAMILIES[name], octave, family: name });
   });
   return out;
+}
+
+/**
+ * The same instrument, a different player. Two ferries on one route share its
+ * voice — that is what makes a route legible — but each vessel carries a small
+ * fixed detune from its own trip id, so a pair working the same crossing are
+ * not clones of each other.
+ */
+export function vesselDetune(tripId: string): number {
+  return (hash(tripId) - 0.5) * 14;
 }
 
 /** Walk the scale: degree 5 is the same note an octave up. */
@@ -137,11 +166,47 @@ export function idleFigure(routeIds: string[]): PhraseNote[] {
 }
 
 /**
+ * What each terminal is made of. Assigned by hand from what the place actually
+ * was, not by hash: the bay's history is right there in the stops, and a map
+ * that sounds like its own past is worth more than one that sounds random.
+ * Anything missing falls back to a pipe.
+ */
+const STATION_VOICE: Record<string, [FamilyName, number]> = {
+  '7201': ['bell', 1],            // Ferry Building — the 1898 clock tower
+  alcatraz: ['metal', 0],         // the iron of the cellhouse
+  'pier-33': ['plucked', 1],      // the Embarcadero landing boats leave from
+  'angel-island': ['wood', 2],    // the immigration station's timber barracks
+  '7212': ['metal', 2],           // Vallejo, downstream of the shipyard
+  '7213': ['metal', 1],           // Mare Island itself — the yard
+  '7211': ['metal', 3],           // Richmond, the Kaiser yards and their rivets
+  sausalito: ['hum', 1],          // houseboats, and Marinship before them
+  tiburon: ['bell', 2],           // the railroad ferry terminus
+  larkspur: ['glass', 3],         // the modern commute
+  '7209': ['reed', 1],            // Oakland, on the estuary
+  '7208': ['reed', 2],            // Alameda Main Street
+  '7207': ['pipe', 2],            // Seaplane Lagoon — NAS Alameda
+  'treasure-island': ['glass', 2], // the 1939 Exposition's Magic City
+  '7205': ['wood', 1],            // South San Francisco, "The Industrial City"
+  '7206': ['pipe', 1],            // Harbor Bay
+  'redwood-city': ['hum', 0],     // the port, and the salt ponds
+  '7215': ['plucked', 2],         // Jack London, a water shuttle stop
+  '7216': ['plucked', 3],         // Bohol Circle, likewise
+  'pier-39': ['hum', 2],          // the sea lions
+  'pier-43': ['bell', 3],         // Pier 43½, under the Belt Railroad arch
+};
+
+/** A terminal's voice — its instrument and its one fixed note. */
+export function stationVoice(id: string): RouteVoice {
+  const [name, octave] = STATION_VOICE[id] ?? ['pipe', 1];
+  return { preset: FAMILIES[name], octave, family: name };
+}
+
+/**
  * A terminal's note: fixed for the life of the place, so the Ferry Building
  * always answers with the same pitch and you learn the bay by ear.
  */
 export function stationDegree(id: string): number {
-  return Math.floor(hash(id) * 8);
+  return Math.floor(hash(id) * 5);
 }
 
 export interface Post {
@@ -182,9 +247,21 @@ export function listeningPosts(data: ScheduleData, spacingM = 1500): Post[] {
   return out;
 }
 
-/** Active parent stations, projected once, for the same treatment. */
-export function stationPosts(terminals: Terminal[]): { id: string; world: WorldPt; degree: number }[] {
+export interface StationPost {
+  id: string;
+  world: WorldPt;
+  degree: number;
+  voice: RouteVoice;
+}
+
+/** Active parent stations, projected and voiced once at boot. */
+export function stationPosts(terminals: Terminal[]): StationPost[] {
   return terminals
     .filter((t) => t.active && !t.parent)
-    .map((t) => ({ id: t.id, world: project(t.lng, t.lat), degree: stationDegree(t.id) }));
+    .map((t) => ({
+      id: t.id,
+      world: project(t.lng, t.lat),
+      degree: stationDegree(t.id),
+      voice: stationVoice(t.id),
+    }));
 }
