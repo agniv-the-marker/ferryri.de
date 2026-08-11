@@ -10,7 +10,7 @@ import { project, metersPerWorldUnit, type WorldPt } from './proj';
 import type { Route, ScheduleData, Terminal } from '../lib/types';
 import type { VesselState } from '../sim/vessels';
 import { T } from '../lib/tunables';
-import { routeVisible } from '../lib/visibility';
+import { routeVisible, stationRoutes, stationVisible } from '../lib/visibility';
 
 export type Pick =
   | { type: 'terminal'; terminal: Terminal }
@@ -188,7 +188,7 @@ export class Overlay {
   private terminals: TerminalPt[];
   private stations: TerminalPt[];
   private routeById: Map<string, Route>;
-  private stationRoutes = new Map<string, Route[]>();
+  private stationRoutes: Map<string, Route[]>;
   private dpr = Math.min(devicePixelRatio || 1, 2);
   private lastVessels: VesselState[] = [];
   /** Per-vessel water response, eased frame to frame — see the bob block. */
@@ -237,13 +237,7 @@ export class Overlay {
       .map((t) => ({ ...t, world: project(t.lng, t.lat) }));
     this.stations = this.terminals.filter((t) => !t.parent);
     this.routeById = new Map(data.routes.map((r) => [r.id, r]));
-    for (const route of data.routes) {
-      for (const id of route.terminals) {
-        const list = this.stationRoutes.get(id) ?? [];
-        list.push(route);
-        this.stationRoutes.set(id, list);
-      }
-    }
+    this.stationRoutes = stationRoutes(data);
   }
 
   /**
@@ -559,6 +553,6 @@ export class Overlay {
   }
 
   private terminalVisible(t: Terminal): boolean {
-    return (this.stationRoutes.get(t.id) ?? []).some(routeVisible);
+    return stationVisible(this.stationRoutes.get(t.id));
   }
 }

@@ -132,18 +132,18 @@ async function boot() {
   const wtFrozen = Number.isFinite(wtParam) && wtParam > 0;
   if (wtFrozen) waterTime = wtParam;
 
-  // ---- music: the bay as a score, wanted from boot but silent until touched ----
+  // ---- music: the bay as a score, off until asked for ----
   const music = new Music(schedule);
   const musicBtn = document.getElementById('music-link') as HTMLButtonElement;
   // dev: ?voices=sf boots on the sampled palette, so a reload is the whole A/B
   if (new URLSearchParams(location.search).get('voices') === 'sf') {
     setTunable('musicSampled', true);
   }
-  // What this visit wants, settled *before* anything listens for it. `musicOn`
-  // defaults on, but a browser will not autoplay, so the tunable can only ever
-  // mean "wanted" here — `music.enabled` is the one that means "sounding". A
-  // remembered choice from a previous visit wins over the default; ?music=
-  // wins over both.
+  // What this visit wants, settled *before* anything listens for it. The
+  // tunable only ever means "wanted" — `music.enabled` is the one that means
+  // "sounding", since nothing can start without a gesture. Off by default; a
+  // visitor who turned it on last time has it armed for their first touch, and
+  // ?music= beats both.
   const musicParam = new URLSearchParams(location.search).get('music');
   const remembered = Music.rememberedChoice();
   const wantMusic =
@@ -163,11 +163,12 @@ async function boot() {
     void music.setEnabled(T.musicOn);
   });
   if (wantMusic) {
-    // Music is wanted but cannot start itself, so it starts on whatever the
-    // visitor touches first. The music button is the exception: it starts
-    // audio in its own click handler, and doing it here as well would have
-    // this gesture start it and that one immediately toggle it back off —
-    // which is exactly what the one control everyone reaches for first did.
+    // Music was asked for on a previous visit but cannot resume itself, so it
+    // starts on whatever the visitor touches first. The music button is the
+    // exception: it starts audio in its own click handler, and doing it here
+    // as well would have this gesture start it and that one immediately
+    // toggle it back off — which is what the one control everyone reaches for
+    // first used to do.
     const arm = (e: Event) => {
       removeEventListener('pointerdown', arm);
       if ((e.target as Element | null)?.closest?.('#music-link')) return;

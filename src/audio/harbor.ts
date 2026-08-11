@@ -28,6 +28,8 @@ export class Harbor {
   private humGain: GainNode | null = null;
   private nextHorn = 0;
   private nextBuoy = 0;
+  /** Held quiet while the dev panel is auditioning something. */
+  private muted = false;
   /** 0..1, how much of the fleet is in front of you right now. */
   private activity = 0;
   private running = false;
@@ -37,6 +39,15 @@ export class Harbor {
     private bus: AudioNode,
     private noise: AudioBuffer,
   ) {}
+
+  /**
+   * Hold the room quiet without tearing it down — the listening bench needs to
+   * hear one instrument against silence, and rebuilding the wash and the hum
+   * either side of every audition would be both slower and audible.
+   */
+  setMuted(on: boolean) {
+    this.muted = on;
+  }
 
   /** How busy the visible water is; the engine hum follows it. */
   setActivity(vessels: number) {
@@ -112,11 +123,17 @@ export class Harbor {
   /** Called from the scheduler tick; schedules the occasional event. */
   tick() {
     if (!this.running) return;
-    const level = T.musicHarbor;
+    const level = this.muted ? 0 : T.musicHarbor;
     const now = this.ctx.currentTime;
-    this.washGain?.gain.setTargetAtTime(level * 0.035, now, 2.5);
-    this.humGain?.gain.setTargetAtTime(level * this.activity * 0.03, now, 3);
-    if (level <= 0) return;
+    this.washGain?.gain.setTargetAtTime(level * 0.035, now, this.muted ? 0.15 : 2.5);
+    this.humGain?.gain.setTargetAtTime(level * this.activity * 0.03, now, this.muted ? 0.15 : 3);
+    if (level <= 0) {
+      // keep the clocks rolling forward, or a horn banked up while the panel
+      // was auditioning would sound the moment the room comes back
+      if (now >= this.nextHorn) this.nextHorn = now + HORN_GAP[0]!;
+      if (now >= this.nextBuoy) this.nextBuoy = now + BUOY_GAP[0]!;
+      return;
+    }
 
     if (now >= this.nextHorn) {
       this.horn(now + 0.1, level * T.musicFoghorn);

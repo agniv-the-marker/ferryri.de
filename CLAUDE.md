@@ -27,13 +27,13 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
 - `?sel=<stopId>` — open a terminal board on load (Ferry Building = 7201)
 - `?wt=<sec>` — freeze water animation at a fixed time
 - `?ripple` / `?ripplekick` — automatic ripples for tuning / headless testing
-- `?music` / `?music=0` — force the generative score on or off. It is **on by
-  default**, but no browser will autoplay, so it can only be *armed* at boot and
-  starts on whatever the visitor touches first; a remembered choice from a
-  previous visit beats the default, and `?music=` beats both. The footer's
-  "music" button is the real control — note that `T.musicOn` means *wanted* and
-  `music.enabled` means *sounding*, and only the second is safe to toggle
-  against. `?musickick` renders a fixed
+- `?music` / `?music=0` — force the generative score on or off. It is **off by
+  default** and the footer's "music" button is the real control; a visitor who
+  turned it on last time has it *armed*, and since no browser will autoplay it
+  then starts on whatever they touch first. Note that `T.musicOn` means
+  *wanted* and `music.enabled` means *sounding* — only the second is safe to
+  toggle against, or clicking "music" first thing reads as "turn it off".
+  `?musickick` renders a fixed
   handful of notes through an OfflineAudioContext and reports peak/RMS/note
   counts in the tab title; `?wavekick` taps the bay and hand-steps the ripple
   sim, reporting how many hulls answered the wavefront — both exist because a
@@ -61,8 +61,8 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
   along GTFS shapes via `shape_dist_traveled`.
 - `src/ui/` — split-flap boards (flap.ts), bottom sheet / desktop right panel,
   on-map departure chips, legend (click = spotlight route), dev panel.
-- `src/audio/` — the bay as a generative score, armed at boot and started by
-  the first gesture (browsers require one). No library: voices are recorded
+- `src/audio/` — the bay as a generative score, off until asked for and then
+  started by a gesture (browsers require one). No library: voices are recorded
   instruments by default (`bank.ts`, 0.7 MB fetched only once music actually
   starts) over a synthesised fallback whose identity is a harmonic spectrum and
   an envelope, rung out through a procedurally generated reverb into a bus
@@ -95,6 +95,7 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
 | `heel → pan` | how far a rolling boat pushes its note toward one ear |
 | `harbor` / `foghorn` | the room: wash, an idling engine, a bell buoy, and the horn |
 | `sampled voices` | recorded instruments rather than synthesised ones — on by default; off is the pure-synth palette (`?voices=sf` forces on) |
+| `music` is off by default | nothing sounds until the footer button is pressed; a remembered "on" only *arms* it for the next gesture |
 | `focus lift ×` / `others duck ×` | tapping a ferry brings it forward and pushes the rest back; the bus is made up so the mix keeps its level |
 
 Clicking a route in the legend **auditions it** — solos it and plays its
@@ -139,6 +140,13 @@ GPU readback feeding it) was the map's stutter. And terminals stand on the
 shore, where the sim pins the field flat so waves reflect; a station listens on
 a small ring offshore or it never hears anything.
 
+**Nothing sounds that isn't on the paper.** Hiding a class or an operator takes
+routes, their vessels and their terminals off the map, and anything still
+answering a wave from under there is a ghost — five terminals (Alcatraz, the
+Piers, Redwood City) are drawn by nothing under the default filters alone.
+`stationRoutes()`/`stationVisible()` in `src/lib/visibility.ts` are the single
+predicate the map and the music both ask, so the two cannot drift.
+
 ## The listening bench (dev panel, `listen` group)
 
 `src/ui/devTools.ts`. The same checks the headless `?kick` params run, with
@@ -155,6 +163,14 @@ buttons on them, reporting into the panel instead of the tab title:
 The audition buttons exist because a route's instrument is otherwise only heard
 when the bay happens to sound it, which can be minutes — there was no way to
 answer "do these actually differ?" except by waiting.
+
+Each button **holds the rest of the bay quiet while it runs** (`music.bench()`
+— fleet bed, drone and harbor), because an audition heard over eight ferries
+and a foghorn answers the wrong question. The hold is released when the run
+ends, and music that was off before the button was pressed goes back to being
+off, so the bench never leaves the mix somewhere the user did not put it. Only
+"tap the bay" leaves the wave pass running, since what answers *is* its
+subject; "render check" is offline and needs neither.
 
 ## Verifying schedule accuracy
 

@@ -132,10 +132,11 @@ export const SPECS = {
   // ---- music (the bay as a generative score) ----
   // Voices are paired oscillators a few cents apart, so every note beats
   // against itself the way an aulos's two pipes do, rung out through a long
-  // reverb. On by default but never autoplaying: this flag means *wanted*, and
-  // whatever the visitor touches first is the gesture the browser requires
-  // before a sound comes out. `?music` / `?music=0` forces it either way.
-  musicOn: bool('music', 'music', true),
+  // reverb. Off by default: a site that starts making noise at you is a site
+  // you close. This flag means *wanted* — nothing sounds until a gesture, and
+  // a visitor who turned it on last time has it armed for their first touch.
+  // `?music` / `?music=0` forces it either way.
+  musicOn: bool('music', 'music', false),
   musicGain: num('music', 'master', 0.05, 0, 1, 0.01),
   musicDrone: num('music', 'drone', 0.3, 0, 2, 0.05),
   musicBeat: num('music', 'beat cents', 7, 0, 30, 0.5),

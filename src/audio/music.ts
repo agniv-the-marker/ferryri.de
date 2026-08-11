@@ -19,7 +19,7 @@ import type { Departure } from '../sim/schedule';
 import type { Route, ScheduleData } from '../lib/types';
 import type { VesselState } from '../sim/vessels';
 import { T } from '../lib/tunables';
-import { routeVisible } from '../lib/visibility';
+import { routeVisible, stationRoutes, stationVisible } from '../lib/visibility';
 import { Engine } from './engine';
 import { Harbor } from './harbor';
 import { Bank } from './bank';
@@ -82,6 +82,8 @@ export class Music {
   private routeById: Map<string, Route>;
   private posts: Post[];
   private stations: StationPost[];
+  /** Which routes call at each terminal — the map's own test for drawing one. */
+  private stationRoutes: Map<string, Route[]>;
   private tapVoice: RouteVoice = { preset: TAP, octave: 1 };
   /** Context time after which the water is assumed flat again. */
   private listenUntil = 0;
@@ -100,6 +102,8 @@ export class Music {
   /** last ripple height + last trigger time per trip */
   private waveSeen = new Map<string, { h: number; at: number }>();
   private on = false;
+  /** The dev panel is auditioning: everything the bay does on its own is held. */
+  private benched = false;
   /**
    * Dev aid, in the spirit of `debugWavePeak`: how many hulls have answered a
    * wavefront, and the highest the water has been seen to reach under one.
@@ -120,6 +124,7 @@ export class Music {
     // projected once at boot, not per frame
     this.posts = listeningPosts(data);
     this.stations = stationPosts(data.terminals);
+    this.stationRoutes = stationRoutes(data);
   }
 
   /**
@@ -152,6 +157,24 @@ export class Music {
       priority: 3,
     });
     return `${voice.family} · register ${voice.octave} · ${degreeToFreq(voice, degree).toFixed(0)} Hz`;
+  }
+
+  /**
+   * Hold everything the bay is doing on its own — the fleet bed, the drone and
+   * the room — so the listening bench can play one thing against silence. An
+   * audition heard over eight ferries, a foghorn and a bell buoy answers the
+   * wrong question: you cannot tell whether the voices differ if you cannot
+   * hear them. What the bench itself triggers still sounds, which is why the
+   * wave pass is left alone — tapping the bay is the one check whose whole
+   * subject is what answers.
+   */
+  bench(on: boolean) {
+    if (on === this.benched) return;
+    this.benched = on;
+    this.harbor?.setMuted(on);
+    if (!this.engine) return;
+    if (on) this.engine.stopDrone();
+    else if (this.on) this.engine.startDrone(DRONE_FREQS);
   }
 
   /** Names the dev panel can walk through. */
@@ -226,7 +249,10 @@ export class Music {
     if (this.timer === null) {
       this.timer = setInterval(() => this.tick(), TICK_MS) as unknown as number;
     }
-    this.engine?.startDrone(DRONE_FREQS);
+    // starting up *into* a bench hold: bring the room up already quiet, and
+    // leave the drone for when the hold is released
+    if (!this.benched) this.engine?.startDrone(DRONE_FREQS);
+    this.harbor?.setMuted(this.benched);
     this.harbor?.start();
   }
 
@@ -368,6 +394,7 @@ export class Music {
     const stops = T.musicRippleStop;
     if (stops > 0) {
       for (const st of this.stations) {
+        if (!this.stationLit(st.id)) continue;
         if (state.spotlight !== null && !this.serves(st.id, state.spotlight)) continue;
         const x = st.world.x * s + tx;
         const y = st.world.y * s + ty;
@@ -457,6 +484,7 @@ export class Music {
     if (!ctx || !engine || !snapshot || !this.on) return;
     engine.sync();
     this.harbor?.tick();
+    if (this.benched) return;
     const horizon = ctx.currentTime + LOOKAHEAD;
     const bed = T.musicBed;
     if (bed <= 0) return;
@@ -605,6 +633,16 @@ export class Music {
    */
   private muted(routeId: string, spotlight: string | null): boolean {
     return spotlight !== null && spotlight !== routeId;
+  }
+
+  /**
+   * Is this terminal on the paper right now? Hiding a class or an operator
+   * takes its stations off the map, and a dock nobody can see answering a wave
+   * is a ghost — so the music asks the same question the map does, through the
+   * same predicate.
+   */
+  private stationLit(stationId: string): boolean {
+    return stationVisible(this.stationRoutes.get(stationId));
   }
 
   /** A station belongs to no route, so it answers only for the ones it serves. */
