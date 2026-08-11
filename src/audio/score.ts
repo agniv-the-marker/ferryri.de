@@ -95,38 +95,6 @@ export function assignVoices(routes: Route[]): Map<string, RouteVoice> {
 }
 
 /**
- * What to call each route's voice, in words rather than in code.
- *
- * `assignVoices` guarantees no two routes share a family *and* a register, so
- * the family name alone is ambiguous exactly when a family is dealt twice —
- * and only then is the register worth printing. Two routes on the cello read
- * "cello, low" and "cello, high"; a route with the flute to itself is just
- * "flute", because "flute, mid" tells a reader nothing they can use.
- */
-export function voiceNames(routes: Route[]): Map<string, string> {
-  const voices = assignVoices(routes);
-  const byFamily = new Map<FamilyName, string[]>();
-  for (const [routeId, voice] of voices) {
-    if (!voice.family) continue;
-    const list = byFamily.get(voice.family) ?? [];
-    list.push(routeId);
-    byFamily.set(voice.family, list);
-  }
-  const out = new Map<string, string>();
-  for (const [family, ids] of byFamily) {
-    const name = INSTRUMENT_NAME[family];
-    if (ids.length === 1) {
-      out.set(ids[0]!, name);
-      continue;
-    }
-    const sorted = [...ids].sort((a, b) => voices.get(a)!.octave - voices.get(b)!.octave);
-    const words = sorted.length === 2 ? ['low', 'high'] : ['low', 'mid', 'high', 'highest'];
-    sorted.forEach((id, i) => out.set(id, `${name}, ${words[Math.min(i, words.length - 1)]}`));
-  }
-  return out;
-}
-
-/**
  * The same instrument, a different player. Two ferries on one route share its
  * voice — that is what makes a route legible — but each vessel carries a small
  * fixed detune from its own trip id, so a pair working the same crossing are

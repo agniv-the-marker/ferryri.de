@@ -511,7 +511,7 @@ async function boot() {
   );
   initAbout();
   // the legend and the planner's dropdown are two faces of one filter
-  syncLegend = initLegend(schedule, setRouteFilter, (id) => music.instrumentFor(id));
+  syncLegend = initLegend(schedule, setRouteFilter);
 }
 
 // offline: everything is static + simulated, so the whole site works mid-bay
