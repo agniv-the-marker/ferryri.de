@@ -151,16 +151,29 @@ async function boot() {
   setTunable('musicOn', wantMusic);
   musicBtn.setAttribute('aria-pressed', 'false');
 
-  // From here the tunable is the switch, and the button, the dev panel's
-  // checkbox and the first-gesture arming below are three handles on it.
-  // Tunable listeners run synchronously, so audio still starts inside the
-  // gesture's own call stack — which is what browsers require.
-  musicBtn.addEventListener('click', () => setTunable('musicOn', !music.enabled));
+  // One way in and out of the music, used by the button, the dev panel's
+  // checkbox and the first-gesture arming below alike. It runs synchronously,
+  // so audio starts inside the gesture's own call stack — which is what
+  // browsers require.
+  //
+  // `wanted` is tracked rather than compared against `music.enabled`, because
+  // while music is armed those two legitimately disagree, and every tunable
+  // change notifies every listener: with a state comparison, dragging any
+  // slider — or booting with `?bob=0`, which sets a tunable after this point —
+  // read as "they asked for music", started a context no gesture had allowed,
+  // and left the button convinced music was already playing.
+  let wanted = T.musicOn;
+  const setMusic = (on: boolean) => {
+    wanted = on;
+    if (T.musicOn !== on) setTunable('musicOn', on);
+    musicBtn.setAttribute('aria-pressed', String(on));
+    void music.setEnabled(on);
+  };
+  musicBtn.addEventListener('click', () => setMusic(!music.enabled));
   onTune(() => {
     music.syncPalette();
-    if (T.musicOn === music.enabled) return;
-    musicBtn.setAttribute('aria-pressed', String(T.musicOn));
-    void music.setEnabled(T.musicOn);
+    if (T.musicOn === wanted) return; // this change was about something else
+    setMusic(T.musicOn);
   });
   if (wantMusic) {
     // Music was asked for on a previous visit but cannot resume itself, so it
@@ -172,7 +185,7 @@ async function boot() {
     const arm = (e: Event) => {
       removeEventListener('pointerdown', arm);
       if ((e.target as Element | null)?.closest?.('#music-link')) return;
-      if (!music.enabled) setTunable('musicOn', true);
+      if (!music.enabled) setMusic(true);
     };
     addEventListener('pointerdown', arm);
   }
@@ -182,7 +195,10 @@ async function boot() {
   if (bobParam !== null) setTunable('bobEnable', bobParam !== '0');
 
   // hoisted: the frame loop must not build a closure every frame
-  const vesselFlash = (tripId: string) => music.flashAt(tripId);
+  const flashes = {
+    vessel: (tripId: string) => music.flashAt(tripId),
+    station: (id: string) => music.stationFlashAt(id),
+  };
 
   const musicSnapshot: FrameState = {
     vessels: [],
@@ -305,7 +321,7 @@ async function boot() {
       camera,
       lastVesselList,
       reducedMotion.matches ? null : renderer.waterSampler(camera, waterTime),
-      music.enabled ? vesselFlash : null,
+      music.enabled ? flashes : null,
     );
     // One snapshot object, refilled each frame rather than rebuilt: at 60 fps
     // the garbage from allocating here (and a sampler closure with it) is what

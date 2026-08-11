@@ -146,6 +146,10 @@ export const SPECS = {
   musicDensity: num('music', 'fleet density', 1.45, 0, 3, 0.05),
   musicBed: num('music', 'fleet level', 0.7, 0, 2, 0.05),
   musicPhrase: num('music', 'phrase level', 1.4, 0, 2, 0.05),
+  // Terminals sound on their own too, far more slowly than the boats — a place
+  // rather than a vehicle. Its own level so the bay can be all fleet, all
+  // terminals, or both.
+  musicStationBed: num('music', 'terminal level', 0.55, 0, 2, 0.05),
   musicRippleBell: num('music', 'ripple bell', 1.3, 0, 2, 0.05),
   musicRippleSeq: num('music', 'ripple → hulls', 1.35, 0, 2, 0.05),
   musicRippleStop: num('music', 'ripple → stations', 1.05, 0, 2, 0.05),
@@ -158,6 +162,12 @@ export const SPECS = {
   // The room the music sits in: wash, an idling engine, a bell buoy, and the
   // occasional foghorn. Synthesised, not recorded — see src/audio/harbor.ts.
   musicHarbor: num('music', 'harbor', 0.3, 0, 2, 0.05),
+  // The wash is the fuzzy one — a band of noise under everything — and it is
+  // the part that grows tiresome first, so it gets its own trim under `harbor`
+  // rather than forcing the whole room down to quiet it. 1 is the level the
+  // room was always meant to sit at; it only ever *sounded* loud because the
+  // swell LFO was driving the gain rather than shaping it (see harbor.ts).
+  musicWash: num('music', 'wash', 1, 0, 2, 0.05),
   musicFoghorn: num('music', 'foghorn', 0.65, 0, 2, 0.05),
   // Recorded instruments instead of synthesised ones — the same score, the
   // same envelopes, a different palette. ~0.7 MB, fetched only when switched
