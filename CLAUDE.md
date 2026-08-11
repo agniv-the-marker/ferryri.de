@@ -88,12 +88,14 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
 | `reverb wet` | how much of the room you hear |
 | `fleet density` | how often each vessel underway sounds |
 | `fleet level` / `phrase level` | loudness of the fleet bed / a terminal's departures |
+| `terminal level` | terminals sounding on their own, about a quarter as often as a boat |
 | `ripple bell` | the note the tap itself makes |
 | `ripple → hulls` / `→ stations` / `→ routes` | what answers the passing wavefront |
 | `station reach m` | how far offshore a terminal listens — metres, because a dock sampled at the dock never hears anything |
 | `wave arrival` | how high the water must rise to count as "the wave got here". Peak under a hull is ~0.13, so 0.02 fires most things and 0.20 fires nothing |
 | `heel → pan` | how far a rolling boat pushes its note toward one ear |
 | `harbor` / `foghorn` | the room: wash, an idling engine, a bell buoy, and the horn |
+| `wash` | just the fuzzy part of the room, trimmed under `harbor` — the first thing to turn down if the bay sounds like hiss |
 | `sampled voices` | recorded instruments rather than synthesised ones — on by default; off is the pure-synth palette (`?voices=sf` forces on) |
 | `music` is off by default | nothing sounds until the footer button is pressed; a remembered "on" only *arms* it for the next gesture |
 | `focus lift ×` / `others duck ×` | tapping a ferry brings it forward and pushes the rest back; the bus is made up so the mix keeps its level |
@@ -126,6 +128,25 @@ none. `bank.ts` is the alternate palette, one recorded instrument per family at
 four pitches with `playbackRate` between, sharing the score, the envelopes, the
 voice pool and the bus — so the only thing that changes is where the sound
 comes from. It is fetched only once music actually starts, never at page load.
+
+Two things about those recordings, both measured rather than assumed. They are
+a fixed 3.13 s, and **sixteen of the thirty-six are cut off while still
+sounding** — the sustaining families (clarinet, flute, cello, choir) end at
+4–10% of peak, and a source that stops mid-waveform is a step, which is a
+click, on every note. `bank.ts` therefore fades each note out before its buffer
+can run out. And they peak around 0.11 where a synthesised voice peaks at 1, so
+`TRIM` makes the two palettes the same loudness; without it, switching to
+recordings also turned the music down 23 dB and left the room sounding louder
+than the instruments (measured: the harbor sat 1.3 dB *above* the fleet, and
+sits 21.6 dB below it now).
+
+**Terminals sound on their own too**, on the same randomised clock as the
+boats but about a quarter as often — a place is not a vehicle — under
+`terminal level`, and gated by exactly what the wave path is gated by:
+`stationLit()`, the spotlight, and whether the dock is on screen. A terminal
+**rings on the map** when it sounds, a circle leaving the dock rather than a
+brighter dot, since a station's ink is the coastline's ink and brightening it
+reads as a smudge.
 
 A vessel **brightens on the map while its note sounds** — `music.flash(tripId)`
 decays over ~0.9 s and `overlay.draw()` takes it as a fourth argument, lifting

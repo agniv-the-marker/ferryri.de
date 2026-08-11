@@ -112,13 +112,38 @@ export function degreeToFreq(voice: RouteVoice, degree: number): number {
 }
 
 /**
- * How often a given vessel sounds, in seconds. Each boat keeps its own period
- * derived from its trip id, so the fleet is polyrhythmic and never lines up
- * into a beat — the texture drifts the way traffic does.
+ * How often a given vessel sounds, on average, in seconds. Each boat keeps its
+ * own period derived from its trip id, so the fleet is polyrhythmic and never
+ * lines up into a beat — the texture drifts the way traffic does.
  */
 export function periodFor(tripId: string, density: number): number {
   const base = 4 + hash(tripId) * 8; // 4–12 s
   return base / Math.max(0.05, density);
+}
+
+/**
+ * The actual wait until this boat sounds again: its own period, thrown about.
+ * A boat on an exact period is a metronome — nineteen metronomes at nineteen
+ * tempos still read as machinery, and what you want is a boat that goes off
+ * when it feels like it. The spread is wide enough to break the grid and
+ * bounded either side, because a draw with no floor puts two notes on top of
+ * each other and one with no ceiling leaves a boat silent long enough that you
+ * stop believing it is there.
+ */
+export function nextGapFor(tripId: string, density: number): number {
+  return periodFor(tripId, density) * (0.45 + Math.random() * 1.15);
+}
+
+/** A terminal speaks this many times more slowly than a boat: it is a place. */
+const STATION_SLOWER = 3.5;
+
+/**
+ * The same throw of the dice for a terminal, over a much longer period. A
+ * ferry is a thing passing through and can chatter; a dock is a thing that has
+ * been there since 1898 and should say so about once a minute.
+ */
+export function stationGapFor(stationId: string, density: number): number {
+  return nextGapFor(`station:${stationId}`, density / STATION_SLOWER);
 }
 
 export interface PhraseNote {

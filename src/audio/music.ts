@@ -31,8 +31,9 @@ import {
   hash,
   idleFigure,
   listeningPosts,
-  periodFor,
+  nextGapFor,
   phraseFrom,
+  stationGapFor,
   stationPosts,
   stationVoice,
   vesselDetune,
@@ -58,6 +59,8 @@ const LISTEN_WINDOW = 8;
 const STATION_RING = 8;
 /** How long a hull stays tinted after it sounds. */
 const FLASH_MS = 900;
+/** How far off the edge of the screen a boat still counts as on the map. */
+const EDGE = 30;
 
 export interface FrameState {
   vessels: VesselState[];
@@ -96,9 +99,13 @@ export class Music {
    * reason to know about the audio clock.
    */
   private flashes = new Map<string, number>();
+  /** The same for terminals: a dock lights up as its own note goes out. */
+  private stationFlashes = new Map<string, number>();
   private snapshot: FrameState | null = null;
   /** next fleet-bed note per trip, in context time */
   private nextAt = new Map<string, number>();
+  /** the same, for terminals sounding on their own */
+  private nextStationAt = new Map<string, number>();
   /** last ripple height + last trigger time per trip */
   private waveSeen = new Map<string, { h: number; at: number }>();
   private on = false;
@@ -320,6 +327,18 @@ export class Music {
     }
   }
 
+  /** How brightly to ring a terminal right now, 0..1. */
+  stationFlashAt(stationId: string): number {
+    const at = this.stationFlashes.get(stationId);
+    if (at === undefined) return 0;
+    const age = (performance.now() - at) / FLASH_MS;
+    return age >= 1 ? 0 : 1 - age;
+  }
+
+  private flashStation(stationId: string) {
+    this.stationFlashes.set(stationId, performance.now());
+  }
+
   /** How loud a given vessel should be, given what is in focus. */
   private focusGain(tripId: string): number {
     if (this.focus === null) return 1;
@@ -425,7 +444,10 @@ export class Music {
           velocity: Math.min(0.8, 0.28 + height * 1.6) * stops,
           pan: panOfX(x),
           priority: 2,
-        })) this.debugStationNotes++;
+        })) {
+          this.debugStationNotes++;
+          this.flashStation(st.id);
+        }
       }
     }
 
@@ -487,9 +509,15 @@ export class Music {
     if (this.benched) return;
     const horizon = ctx.currentTime + LOOKAHEAD;
     const bed = T.musicBed;
-    if (bed <= 0) return;
+    const { cam } = snapshot;
+    const sc = cam.scale;
+    const { w, h } = cam.viewport;
+    const tx = w / 2 - cam.cur.x * sc;
+    const ty = h / 2 - cam.cur.y * sc;
 
-    for (const v of snapshot.vessels) {
+    // `fleet level` at zero means no boats, not no bay: the terminals below
+    // have their own level and keep sounding
+    for (const v of bed > 0 ? snapshot.vessels : []) {
       const voice = this.voices.get(v.routeId);
       if (!voice || !this.visible(v.routeId) || this.muted(v.routeId, snapshot.spotlight)) continue;
       const id = v.trip.id;
@@ -502,8 +530,18 @@ export class Music {
         continue;
       }
       if (at > horizon) continue;
-      const period = periodFor(id, T.musicDensity * (this.focus === id ? 2.2 : 1));
-      this.nextAt.set(id, at + period);
+      const gap = nextGapFor(id, T.musicDensity * (this.focus === id ? 2.2 : 1));
+      this.nextAt.set(id, at + gap);
+      // A boat you cannot see is a boat that isn't on the map, and the flash
+      // that shows which hull is sounding has nothing to light. Its clock is
+      // rolled forward rather than left to run down, so a fleet that was
+      // offscreen doesn't all strike at once the moment you pan back.
+      const x = v.pos.x * sc + tx;
+      const y = v.pos.y * sc + ty;
+      if (x < -EDGE || y < -EDGE || x > w + EDGE || y > h + EDGE) {
+        this.nextAt.set(id, ctx.currentTime + gap);
+        continue;
+      }
       // docked boats are tied up, not sailing — they murmur
       const velocity = (v.docked ? 0.18 : 0.45) * bed * this.focusGain(id);
       if (engine.play({
@@ -518,6 +556,64 @@ export class Music {
       })) this.flash(id);
     }
     if (this.nextAt.size > 400) this.nextAt.clear();
+
+    this.stationBed(ctx, engine, snapshot, horizon, sc, tx, ty);
+  }
+
+  /**
+   * Terminals sound on their own as well, the way the boats do — far more
+   * slowly, because a place is not a vehicle, and each on its own throw of the
+   * dice so the shoreline never falls into a rhythm.
+   *
+   * It answers to the same gates as everything else: a terminal drawn by
+   * nothing is silent, a spotlit route silences the terminals it does not
+   * serve, and one off the edge of the screen keeps its clock rolling rather
+   * than banking up notes to fire when you pan back.
+   */
+  private stationBed(
+    ctx: AudioContext,
+    engine: Engine,
+    snapshot: FrameState,
+    horizon: number,
+    sc: number,
+    tx: number,
+    ty: number,
+  ) {
+    const level = T.musicStationBed;
+    if (level <= 0) return;
+    const { w, h } = snapshot.cam.viewport;
+
+    for (const st of this.stations) {
+      if (!this.stationLit(st.id)) continue;
+      if (snapshot.spotlight !== null && !this.serves(st.id, snapshot.spotlight)) continue;
+      let at = this.nextStationAt.get(st.id);
+      if (at === undefined) {
+        // spread the first entries out, or the whole shoreline speaks at once
+        at = ctx.currentTime + hash(st.id) * 25;
+        this.nextStationAt.set(st.id, at);
+        continue;
+      }
+      if (at > horizon) continue;
+      const gap = stationGapFor(st.id, T.musicDensity);
+      this.nextStationAt.set(st.id, at + gap);
+      const x = st.world.x * sc + tx;
+      const y = st.world.y * sc + ty;
+      if (x < -EDGE || y < -EDGE || x > w + EDGE || y > h + EDGE) {
+        this.nextStationAt.set(st.id, ctx.currentTime + gap);
+        continue;
+      }
+      if (engine.play({
+        preset: st.voice.preset,
+        family: st.voice.family,
+        freq: degreeToFreq(st.voice, st.degree),
+        when: Math.max(at, ctx.currentTime),
+        ring: T.musicRing,
+        velocity: 0.3 * level,
+        pan: ((x / w) * 2 - 1) * T.musicPan,
+        priority: 0,
+      })) this.flashStation(st.id);
+    }
+    if (this.nextStationAt.size > 200) this.nextStationAt.clear();
   }
 
   // ---- taps ---------------------------------------------------------------
@@ -560,6 +656,7 @@ export class Music {
           velocity: 0.6 * T.musicPhrase,
           priority: 3,
         });
+        this.flashStation(st.id);
       }
     }
     const notes = deps.length ? phraseFrom(deps, nowSec) : idleFigure(routesHere);

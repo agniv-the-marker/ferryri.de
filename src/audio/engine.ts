@@ -124,8 +124,14 @@ export class Engine {
   private master: GainNode;
   private wet: GainNode;
   private reverb: ConvolverNode;
-  /** Sounding notes, oldest first, each with the rank that can displace it. */
-  private live: { env: GainNode; oscs: OscillatorNode[]; priority: number }[] = [];
+  /**
+   * Sounding notes, oldest first, each with the rank that can displace it.
+   *
+   * One shape for both palettes: an envelope to fade and a way to stop the
+   * sources behind it, whether those are oscillators or a sample. The pool is
+   * only worth having if retiring an entry actually silences it.
+   */
+  private live: { env: GainNode; stop: (at: number) => void; priority: number }[] = [];
   /** Dev aid: notes that never sounded because the pool was full. */
   debugDropped = 0;
   private drone: OscillatorNode[] = [];
@@ -306,17 +312,23 @@ export class Engine {
 
     // The sampled palette borrows the pool accounting and the bus, so the mix,
     // the stealing and the room all behave identically either way — the only
-    // thing that changes is where the sound comes from.
-    if (this.bank?.ready && n.family && this.bank.play(n.family, n, this.master)) {
-      const held = { env: ctx.createGain(), oscs: [] as OscillatorNode[], priority };
+    // thing that changes is where the sound comes from. What goes in the pool
+    // has to be the note's *own* envelope and sources: the placeholder that
+    // used to stand in here was connected to nothing, so a steal faded a dead
+    // node and reported a slot freed while the sample played on, and the timer
+    // that retired it was set for the full ring when these recordings stop
+    // after about three seconds — the pool spent most of its time holding
+    // slots for notes that had already finished.
+    const sampled = this.bank?.ready && n.family
+      ? this.bank.play(n.family, n, this.master)
+      : null;
+    if (sampled) {
+      const held = { env: sampled.env, stop: sampled.stop, priority };
       this.live.push(held);
-      setTimeout(
-        () => {
-          const i = this.live.indexOf(held);
-          if (i >= 0) this.live.splice(i, 1);
-        },
-        (Math.max(0.05, n.ring) + p.release) * 1000,
-      );
+      // the note leaves the pool when its source actually ends — including
+      // when a steal cut it short, which a timer set for the full ring would
+      // have got wrong in both directions
+      sampled.source.addEventListener('ended', () => this.retire(held));
       return true;
     }
 
@@ -409,17 +421,34 @@ export class Engine {
       osc.stop(stopAt);
     }
 
-    const entry = { env, oscs, priority };
+    const entry = {
+      env,
+      stop: (at: number) => {
+        for (const osc of oscs) {
+          try {
+            osc.stop(at);
+          } catch {
+            /* already stopped */
+          }
+        }
+      },
+      priority,
+    };
     this.live.push(entry);
     oscs[0]!.onended = () => {
-      const i = this.live.indexOf(entry);
-      if (i >= 0) this.live.splice(i, 1);
+      this.retire(entry);
       for (const osc of oscs) osc.disconnect();
       env.disconnect();
       lp.disconnect();
       pan.disconnect();
     };
     return true;
+  }
+
+  /** Take a note out of the pool once it has actually finished sounding. */
+  private retire(entry: { env: GainNode }) {
+    const i = this.live.findIndex((v) => v.env === entry.env);
+    if (i >= 0) this.live.splice(i, 1);
   }
 
   /**
@@ -434,7 +463,9 @@ export class Engine {
     const t = this.ctx.currentTime;
     victim.env.gain.cancelScheduledValues(t);
     victim.env.gain.setTargetAtTime(0, t, 0.08);
-    for (const osc of victim.oscs) osc.stop(t + 0.4);
+    // whatever is behind that envelope — two oscillators or one sample — stops
+    // just after the fade, so the slot this returns is a slot that went quiet
+    victim.stop(t + 0.4);
     this.live.splice(i, 1);
     return true;
   }
