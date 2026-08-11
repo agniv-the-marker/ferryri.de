@@ -120,9 +120,13 @@ export const SPECS = {
   // Zero lag was the call from tuning: the hull answers the water on the
   // frame, and the water is smooth enough now to carry it.
   bobEase: num('bob', 'hull lag s', 0, 0, 1.5, 0.05),
-  // Landed at 1.95 against a ceiling of 2, so the ceiling was the wrong shape
-  // of the argument, not the answer — raised to leave headroom above it.
-  bobSwell: num('bob', 'swell share', 1.95, 0, 3, 0.05),
+  // The swell is the *idle* sea: it is the only thing moving a boat when
+  // nobody has touched the water, since the tap ripples come off a separate
+  // field. Held well down, because a hull that never stops rolling reads as
+  // restlessness rather than as water — and further down again on a phone,
+  // where the same pixel of motion fills much more of the screen.
+  bobSwell: num('bob', 'swell share', 0.6, 0, 3, 0.05),
+  bobSwellPhone: num('bob', 'swell × on phone', 0.35, 0, 1, 0.05),
   bobLift: num('bob', 'lift px', 6, 0, 16, 0.25),
   bobScale: num('bob', 'size swell', 0.15, 0, 0.6, 0.01),
   bobRock: num('bob', 'rock °', 11, 0, 30, 0.5),
