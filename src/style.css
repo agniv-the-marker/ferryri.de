@@ -41,8 +41,6 @@ body {
   overflow: hidden;
   position: fixed;
   inset: 0;
-  -webkit-user-select: none;
-  user-select: none;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -58,7 +56,12 @@ body {
   display: block;
 }
 
-#map-overlay { touch-action: none; cursor: grab; }
+#map-overlay {
+  touch-action: none;
+  cursor: grab;
+  -webkit-user-select: none;
+  user-select: none;
+}
 #map-overlay.dragging { cursor: grabbing; }
 
 #chips {
@@ -242,6 +245,8 @@ body {
   padding: 0.55rem 0;
   touch-action: none;
   cursor: grab;
+  -webkit-user-select: none;
+  user-select: none;
 }
 #sheet-grip span {
   width: 2.25rem;
@@ -619,6 +624,8 @@ body {
   #sheet .sheet-title {
     touch-action: none;
     cursor: grab;
+    -webkit-user-select: none;
+    user-select: none;
   }
 
   .service-cards,
