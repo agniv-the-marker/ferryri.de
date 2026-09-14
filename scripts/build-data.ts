@@ -387,6 +387,14 @@ async function main() {
       const replacement = fallbackShape.get(`${t.route}:${t.dir}`);
       if (!replacement) throw new Error(`trip ${t.id} references missing shape ${t.shape}`);
       console.warn(`trip ${t.id} references missing shape ${t.shape}; using ${replacement}`);
+      const replacementEnd = shapes[replacement]!.dist.at(-1) ?? 0;
+      const firstDist = t.stops[0]!.dist;
+      const lastDist = t.stops[t.stops.length - 1]!.dist;
+      const span = lastDist - firstDist;
+      if (span <= 0) throw new Error(`trip ${t.id} has non-increasing stop distances; cannot remap to ${replacement}`);
+      for (const stop of t.stops) stop.dist = Math.round(replacementEnd * ((stop.dist - firstDist) / span));
+      t.stops[0]!.dist = 0;
+      t.stops[t.stops.length - 1]!.dist = replacementEnd;
       t.shape = replacement;
     }
     if (!services[t.service]) throw new Error(`trip ${t.id} references missing service ${t.service}`);
