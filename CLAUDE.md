@@ -54,7 +54,13 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
 - `scripts/build-data.ts` — multi-feed GTFS + external-service catalog → compact
   schedule.json. Ferry Building is
   parent stop `7201`; gates are child stops (72011=E, 72012=G, 72013=F) so
-  departures know their gate natively.
+  departures know their gate natively. `shape_id` and `shape_dist_traveled`
+  are optional in GTFS and SF Bay Ferry leaves both blank on special-event
+  trips, so a trip that arrives without geometry **borrows a shape** from
+  another trip on its route whose ends sit on the same two docks, and has its
+  stops measured along it — without that, the build threw and nothing
+  deployed. A trip with no shape to borrow is dropped with a warning; a
+  *dangling* shape id still fails the build, because that one is a bug.
 - `src/map/renderer.ts` — WebGL2: Bayer-dithered water w/ zoom-settled fractal
   noise, hillshade land, coastline from the rasterized land-mask texture, and
   a wave-equation ripple sim (land = reflective boundary). `waterSampler()`
