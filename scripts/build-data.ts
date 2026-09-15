@@ -215,9 +215,29 @@ async function main() {
       list.push({ lng: Number(r.shape_pt_lon), lat: Number(r.shape_pt_lat), seq: Number(r.shape_pt_sequence), dist: Number(r.shape_dist_traveled || 0) });
       shapePts.set(id, list);
     }
+    // Golden Gate's shapes.txt carries no shape_dist_traveled column at all, so
+    // every point measures 0; pointAt() then answers any distance past the dock
+    // with the last point and parks the vessel at the far terminal for the whole
+    // crossing. A shape that arrives unmeasured is measured from its own
+    // geometry, and the trips on it are re-measured to match — the feed's own
+    // stop distances are in some other measure (they run 3.07–3.59× the metres
+    // on the ground, and not by a constant), so they cannot be mixed with it.
+    const remeasured = new Set<string>();
     for (const [id, pts] of shapePts) {
       pts.sort((a, b) => a.seq - b.seq);
-      shapes[id] = { pts: pts.map((p) => [Number(p.lng.toFixed(5)), Number(p.lat.toFixed(5))]), dist: pts.map((p) => Math.round(p.dist)) };
+      const shape: Shape = {
+        pts: pts.map((p) => [Number(p.lng.toFixed(5)), Number(p.lat.toFixed(5))]),
+        dist: pts.map((p) => Math.round(p.dist)),
+      };
+      if (shape.pts.length > 1 && shape.dist[shape.dist.length - 1] === 0) {
+        let total = 0;
+        shape.dist = shape.pts.map((p, i) => {
+          if (i) total += metersBetween(shape.pts[i - 1]!, p);
+          return Math.round(total);
+        });
+        remeasured.add(id);
+      }
+      shapes[id] = shape;
     }
 
     // Both shape_id and shape_dist_traveled are optional in GTFS, and SF Bay
@@ -251,17 +271,27 @@ async function main() {
       }
       return best;
     };
-    /** Each stop's distance along the shape, snapped to the nearest shape point. */
-    const measureAlong = (shape: Shape, stops: TripStop[]) => stops.map((s) => {
-      const p = stopAt.get(s.stop);
-      if (!p) return s.dist;
-      let at = s.dist, off = Infinity;
-      for (let i = 0; i < shape.pts.length; i++) {
-        const d = metersBetween(shape.pts[i]!, p);
-        if (d < off) { off = d; at = shape.dist[i]!; }
-      }
-      return at;
-    });
+    /**
+     * Each stop's distance along the shape, snapped to the nearest shape point
+     * at or after the previous stop's. Five Golden Gate trips are round trips
+     * on a looping shape, and a plain nearest-point search sends their last
+     * call — back at the dock they left — to distance 0.
+     */
+    const measureAlong = (shape: Shape, stops: TripStop[]) => {
+      let from = 0;
+      return stops.map((s) => {
+        const p = stopAt.get(s.stop);
+        if (!p) return s.dist;
+        let best = -1, off = Infinity;
+        for (let i = from; i < shape.pts.length; i++) {
+          const d = metersBetween(shape.pts[i]!, p);
+          if (d < off) { off = d; best = i; }
+        }
+        if (best < 0) return s.dist;
+        from = best + 1;
+        return shape.dist[best]!;
+      });
+    };
 
     let borrowed = 0, dropped = 0;
     for (const t of tripsRaw) {
@@ -278,8 +308,9 @@ async function main() {
       }
       if (!t.shape_id) borrowed++;
       // Trips that came without a shape came without measurements too, and
-      // stops that all sit at distance 0 pin the vessel to the first point.
-      if (shapes[shape] && stops[0]!.dist === stops.at(-1)!.dist) {
+      // stops that all sit at distance 0 pin the vessel to the first point;
+      // trips on a re-measured shape have to move to its measure as well.
+      if (shapes[shape] && (remeasured.has(shape) || stops[0]!.dist === stops.at(-1)!.dist)) {
         const along = measureAlong(shapes[shape]!, stops);
         stops.forEach((s, i) => { s.dist = along[i]!; });
       }

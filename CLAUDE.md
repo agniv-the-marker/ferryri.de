@@ -61,6 +61,15 @@ aesthetic after sunday.bike (user's source: `~/Documents/sundaybike`).
   stops measured along it — without that, the build threw and nothing
   deployed. A trip with no shape to borrow is dropped with a warning; a
   *dangling* shape id still fails the build, because that one is a bug.
+  Golden Gate ships no `shape_dist_traveled` **column at all**, so its shapes
+  arrive measuring 0 end to end and `pointAt()` answered every distance with
+  the last point — its ferries jumped to the far dock on departure and sat
+  there (118 of 712 trip-days never moved). Such a shape is measured from its
+  own geometry and its trips re-measured along it; the feed's own stop
+  distances are in some other measure entirely (3.07–3.59× the metres on the
+  ground, and not by a constant) and cannot be mixed in. The snap runs
+  *forward* from the previous stop, or the round trips that end where they
+  started measure their last call at distance 0.
 - `src/map/renderer.ts` — WebGL2: Bayer-dithered water w/ zoom-settled fractal
   noise, hillshade land, coastline from the rasterized land-mask texture, and
   a wave-equation ripple sim (land = reflective boundary). `waterSampler()`
