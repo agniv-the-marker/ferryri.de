@@ -96,6 +96,13 @@ function parseCsv(text: string): Record<string, string>[] {
   return rows.map((r) => Object.fromEntries(header.map((h, i) => [h.trim(), (r[i] ?? '').trim()])));
 }
 
+/** Metres between two [lng, lat] points (equirectangular; exact enough at bay scale). */
+function metersBetween(a: [number, number], b: [number, number]) {
+  const y = (b[1] - a[1]) * 111_320;
+  const x = (b[0] - a[0]) * 111_320 * Math.cos(((a[1] + b[1]) / 2) * Math.PI / 180);
+  return Math.hypot(x, y);
+}
+
 function hexToHsl(hex: string): [number, number, number] {
   const n = parseInt(hex.replace('#', ''), 16);
   const [r, g, b] = [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
@@ -200,16 +207,6 @@ async function main() {
     }
     for (const list of stopRowsByTrip.values()) list.sort((a, b) => a.seq - b.seq);
 
-    for (const t of tripsRaw) {
-      const rows = stopRowsByTrip.get(t.trip_id!);
-      if (!rows || rows.length < 2) continue;
-      trips.push({
-        id: source.idFor('trip', t.trip_id!), route: source.idFor('route', t.route_id!),
-        service: source.idFor('service', t.service_id!), dir: t.direction_id === '1' ? 1 : 0,
-        shape: source.idFor('shape', t.shape_id!), stops: rows.map((r) => r.stop),
-      });
-    }
-
     const shapePts = new Map<string, { lng: number; lat: number; seq: number; dist: number }[]>();
     for (const r of file('shapes.txt')) {
       if (!keptShapes.has(r.shape_id!)) continue;
@@ -222,6 +219,77 @@ async function main() {
       pts.sort((a, b) => a.seq - b.seq);
       shapes[id] = { pts: pts.map((p) => [Number(p.lng.toFixed(5)), Number(p.lat.toFixed(5))]), dist: pts.map((p) => Math.round(p.dist)) };
     }
+
+    // Both shape_id and shape_dist_traveled are optional in GTFS, and SF Bay
+    // Ferry leaves them blank on special-event trips (the Sep 2026 Maker Faire
+    // shuttles were the first). The sailings are real; only the geometry is
+    // missing. Where another trip on the same route already runs between the
+    // same two docks, borrow its shape and measure the stops along it.
+    const stopAt = new Map(stopsRaw.map((s) => [source.idFor('stop', s.stop_id!), [Number(s.stop_lon), Number(s.stop_lat)] as [number, number]]));
+    const shapesByRoute = new Map<string, string[]>();
+    for (const t of tripsRaw) {
+      if (!t.shape_id) continue;
+      const list = shapesByRoute.get(t.route_id!) ?? [];
+      const id = source.idFor('shape', t.shape_id);
+      if (!list.includes(id)) list.push(id);
+      shapesByRoute.set(t.route_id!, list);
+    }
+    // A dock and the shape end that serves it sit ~50–70 m apart; the wrong end
+    // of the shortest crossing in the feed (Mare Island–Vallejo, 596 m) is 550 m
+    // away, so this tolerance still tells the two directions apart.
+    const SNAP_M = 200;
+    /** The route's shape whose ends sit on this trip's first and last stop. */
+    const borrowShape = (routeId: string, stops: TripStop[]) => {
+      const from = stopAt.get(stops[0]!.stop), to = stopAt.get(stops.at(-1)!.stop);
+      if (!from || !to) return undefined;
+      let best: string | undefined, bestOff = Infinity;
+      for (const id of shapesByRoute.get(routeId) ?? []) {
+        const { pts } = shapes[id]!;
+        const head = metersBetween(pts[0]!, from), tail = metersBetween(pts.at(-1)!, to);
+        if (head > SNAP_M || tail > SNAP_M || head + tail >= bestOff) continue;
+        best = id; bestOff = head + tail;
+      }
+      return best;
+    };
+    /** Each stop's distance along the shape, snapped to the nearest shape point. */
+    const measureAlong = (shape: Shape, stops: TripStop[]) => stops.map((s) => {
+      const p = stopAt.get(s.stop);
+      if (!p) return s.dist;
+      let at = s.dist, off = Infinity;
+      for (let i = 0; i < shape.pts.length; i++) {
+        const d = metersBetween(shape.pts[i]!, p);
+        if (d < off) { off = d; at = shape.dist[i]!; }
+      }
+      return at;
+    });
+
+    let borrowed = 0, dropped = 0;
+    for (const t of tripsRaw) {
+      const rows = stopRowsByTrip.get(t.trip_id!);
+      if (!rows || rows.length < 2) continue;
+      const stops = rows.map((r) => r.stop);
+      // A dangling shape_id is a different failure — leave it for the
+      // referential check below, which should fail the build.
+      const shape = t.shape_id ? source.idFor('shape', t.shape_id) : borrowShape(t.route_id!, stops);
+      if (!shape) {
+        console.warn(`${source.id}: dropping trip ${t.trip_id} — no shape, and no route shape runs between its docks`);
+        dropped++;
+        continue;
+      }
+      if (!t.shape_id) borrowed++;
+      // Trips that came without a shape came without measurements too, and
+      // stops that all sit at distance 0 pin the vessel to the first point.
+      if (shapes[shape] && stops[0]!.dist === stops.at(-1)!.dist) {
+        const along = measureAlong(shapes[shape]!, stops);
+        stops.forEach((s, i) => { s.dist = along[i]!; });
+      }
+      trips.push({
+        id: source.idFor('trip', t.trip_id!), route: source.idFor('route', t.route_id!),
+        service: source.idFor('service', t.service_id!), dir: t.direction_id === '1' ? 1 : 0,
+        shape, stops,
+      });
+    }
+    if (borrowed || dropped) console.log(`${source.id}: borrowed a shape for ${borrowed} trip(s), dropped ${dropped}`);
 
     const rawStop = new Map(stopsRaw.map((s) => [s.stop_id!, s]));
     const includedRaw = new Set(servedRawStops);
@@ -302,11 +370,7 @@ async function main() {
     let total = 0;
     const dist = [0];
     for (let i = 1; i < points.length; i++) {
-      const [lng0, lat0] = points[i - 1]!;
-      const [lng1, lat1] = points[i]!;
-      const y = (lat1 - lat0) * 111_320;
-      const x = (lng1 - lng0) * 111_320 * Math.cos(((lat0 + lat1) / 2) * Math.PI / 180);
-      total += Math.hypot(x, y);
+      total += metersBetween(points[i - 1]!, points[i]!);
       dist.push(Math.round(total));
     }
     shapes[id] = { pts: points, dist };
