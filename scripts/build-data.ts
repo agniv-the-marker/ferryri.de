@@ -468,8 +468,30 @@ async function main() {
   const feedEnd = Object.values(services).map((s) => s.end).sort().at(-1)!;
   const data: ScheduleData = { generated: new Date().toISOString(), feedEnd, operators: OPERATORS, terminals: [...terminals.values()], routes, shapes, services, trips };
 
+  const fallbackShape = new Map<string, string>();
   for (const t of trips) {
-    if (!shapes[t.shape]) throw new Error(`trip ${t.id} references missing shape ${t.shape}`);
+    const shape = shapes[t.shape];
+    if (!shape) continue;
+    const key = `${t.route}:${t.dir}`;
+    const current = fallbackShape.get(key);
+    const currentLen = current ? (shapes[current]?.dist.at(-1) ?? 0) : -1;
+    if ((shape.dist.at(-1) ?? 0) > currentLen) fallbackShape.set(key, t.shape);
+  }
+  for (const t of trips) {
+    if (!shapes[t.shape]) {
+      const replacement = fallbackShape.get(`${t.route}:${t.dir}`);
+      if (!replacement) throw new Error(`trip ${t.id} references missing shape ${t.shape}`);
+      console.warn(`trip ${t.id} references missing shape ${t.shape}; using ${replacement}`);
+      const replacementEnd = shapes[replacement]!.dist.at(-1) ?? 0;
+      const firstDist = t.stops[0]!.dist;
+      const lastDist = t.stops[t.stops.length - 1]!.dist;
+      const span = lastDist - firstDist;
+      if (span <= 0) throw new Error(`trip ${t.id} has non-increasing stop distances; cannot remap to ${replacement}`);
+      for (const stop of t.stops) stop.dist = Math.round(replacementEnd * ((stop.dist - firstDist) / span));
+      t.stops[0]!.dist = 0;
+      t.stops[t.stops.length - 1]!.dist = replacementEnd;
+      t.shape = replacement;
+    }
     if (!services[t.service]) throw new Error(`trip ${t.id} references missing service ${t.service}`);
   }
   for (const r of routes) {
