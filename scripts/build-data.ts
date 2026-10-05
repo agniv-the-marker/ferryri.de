@@ -293,8 +293,19 @@ async function main() {
       });
     };
 
+    // A trip whose service_id neither calendar file defines never runs. SF Bay
+    // Ferry's Aug 2026 feed left 165 such trips behind — the previous weekday
+    // timetable, 158 of them copies of the current one — with their calendar
+    // row removed. Skip them rather than fail the build on the feed's leftovers.
+    const definedServices = new Set([...file('calendar.txt'), ...file('calendar_dates.txt')].map((c) => c.service_id!));
+    const orphaned = new Map<string, number>();
+
     let borrowed = 0, dropped = 0;
     for (const t of tripsRaw) {
+      if (!definedServices.has(t.service_id!)) {
+        orphaned.set(t.service_id!, (orphaned.get(t.service_id!) ?? 0) + 1);
+        continue;
+      }
       const rows = stopRowsByTrip.get(t.trip_id!);
       if (!rows || rows.length < 2) continue;
       const stops = rows.map((r) => r.stop);
@@ -320,6 +331,7 @@ async function main() {
         shape, stops,
       });
     }
+    for (const [id, n] of orphaned) console.warn(`${source.id}: dropping ${n} trip(s) on service ${id}, which no calendar defines`);
     if (borrowed || dropped) console.log(`${source.id}: borrowed a shape for ${borrowed} trip(s), dropped ${dropped}`);
 
     const rawStop = new Map(stopsRaw.map((s) => [s.stop_id!, s]));
